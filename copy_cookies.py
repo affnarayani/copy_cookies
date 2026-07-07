@@ -12,6 +12,7 @@ DESTINATION_FOLDERS = [
     r"D:\Coding\writer_stack\cookies",
     r"D:\Coding\q_rise\chatgpt_cookies",
     r"D:\Coding\pin_pilot_ujjawal\cookies",
+    r"D:\Coding\link_boost_priyanka\chatgpt_cookies",
     r"D:\Coding\link_boost_ujjawal\chatgpt_cookies",
     r"D:\Coding\link_boost_umang\chatgpt_cookies",
     r"D:\Coding\clear_llm\cookies_gpt"
