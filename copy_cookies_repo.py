@@ -48,13 +48,53 @@ if not os.path.exists(SOURCE_FOLDER):
 DESTINATIONS = [
     {
         "owner": "affnarayani",
-        "name": "pin_pilot_ujjawal",
+        "name": "red_suite",
+        "dest_folder": "cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "medium_forge",
+        "dest_folder": "cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "writer_stack",
         "dest_folder": "cookies"
     },
     {
         "owner": "affnarayani",
         "name": "q_rise",
         "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "pin_pilot_ujjawal",
+        "dest_folder": "cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "link_boost_priyanka",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "link_boost_ujjawal",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "link_boost_umang",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "face_flow_priyanka",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "clear_llm",
+        "dest_folder": "cookies_gpt"
     }
 ]
 
