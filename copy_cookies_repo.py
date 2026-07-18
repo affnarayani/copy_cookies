@@ -1,7 +1,9 @@
 import os
+import sys
 import shutil
 import stat
 import time
+import requests
 from git import Repo
 from dotenv import load_dotenv
 
@@ -27,6 +29,34 @@ def remove_readonly(func, path, excinfo):
                 
     # Agar 3 baar mein bhi na ho, toh crash karne ke badle warning dekar aage badhein
     print(f"⚠️ Temporary file release nahi ho payi, skipping: {path}")
+
+def upload_error_screenshot():
+    """Upload error_screenshot.png to ImgBB if it exists."""
+    screenshot_path = "error_screenshot.png"
+    if not os.path.exists(screenshot_path):
+        print("[INFO] No error_screenshot.png found to upload.", flush=True)
+        return
+    try:
+        imgbb_key = os.getenv("IMGBBB_API_KEY")
+        if imgbb_key:
+            print("[OK] Uploading error screenshot to ImgBB...", flush=True)
+            url = f"https://api.imgbb.com/1/upload?expiration=86400&key={imgbb_key}"
+            
+            with open(screenshot_path, "rb") as file:
+                response = requests.post(url, files={"image": file})
+            
+            if response.status_code == 200:
+                res_data = response.json()
+                direct_url = res_data["data"]["display_url"]
+                print("\n" + "="*50, flush=True)
+                print(f"👉 DIRECT SCREENSHOT LINK: {direct_url}", flush=True)
+                print("="*50 + "\n", flush=True)
+            else:
+                print(f"[WARNING] ImgBB Upload Failed Status: {response.status_code}", flush=True)
+        else:
+            print("[WARNING] IMGBBB_API_KEY environment variable not found.", flush=True)
+    except Exception as screenshot_err:
+        print(f"[WARNING] Could not upload screenshot: {screenshot_err}", flush=True)
 
 # 1. .env file ko load karein
 load_dotenv()
@@ -115,6 +145,8 @@ DESTINATIONS = [
 
 TEMP_DIR = "./temp_destination_repo"
 
+any_failure = False
+
 # Loop chala kar har repository ko bari-bari update karenge
 for dest in DESTINATIONS:
     repo_owner = dest["owner"]
@@ -161,6 +193,8 @@ for dest in DESTINATIONS:
 
     except Exception as e:
         print(f"❌ Error occurred while processing {repo_name}: {e}")
+        upload_error_screenshot()
+        any_failure = True
 
     finally:
         # Har repo ka kaam khatam hone ke baad temp folder saaf karein
@@ -172,4 +206,8 @@ for dest in DESTINATIONS:
             except Exception as cleanup_error:
                 print(f"⚠️ Temporary folder delete nahi ho paya. Error: {cleanup_error}")
 
-print("\n🚀 All repository sync processes finished successfully!")
+if any_failure:
+    print("\n❌ Some repositories failed to sync. Exiting with failure.", flush=True)
+    sys.exit(1)
+else:
+    print("\n🚀 All repository sync processes finished successfully!")

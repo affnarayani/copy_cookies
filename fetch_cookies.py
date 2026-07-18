@@ -5,6 +5,7 @@ import random
 import time
 import base64
 import re
+import requests
 from secrets import token_bytes
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
@@ -57,6 +58,34 @@ def get_all_emails():
 def extract_username_from_email(email):
     """Extract username from email (part before @)."""
     return email.split('@')[0]
+
+def capture_and_upload_screenshot(page):
+    """Capture a screenshot of the current page and upload to ImgBB."""
+    try:
+        screenshot_path = "error_screenshot.png"
+        page.screenshot(path=screenshot_path, full_page=True)
+        print(f"[OK] Error screenshot captured: {screenshot_path}", flush=True)
+        
+        imgbb_key = os.getenv("IMGBBB_API_KEY")
+        if imgbb_key:
+            print("[OK] Uploading screenshot to ImgBB...", flush=True)
+            url = f"https://api.imgbb.com/1/upload?expiration=86400&key={imgbb_key}"
+            
+            with open(screenshot_path, "rb") as file:
+                response = requests.post(url, files={"image": file})
+            
+            if response.status_code == 200:
+                res_data = response.json()
+                direct_url = res_data["data"]["display_url"]
+                print("\n" + "="*50, flush=True)
+                print(f"👉 DIRECT SCREENSHOT LINK: {direct_url}", flush=True)
+                print("="*50 + "\n", flush=True)
+            else:
+                print(f"[WARNING] ImgBB Upload Failed Status: {response.status_code}", flush=True)
+        else:
+            print("[WARNING] IMGBBB_API_KEY environment variable not found.", flush=True)
+    except Exception as screenshot_err:
+        print(f"[WARNING] Could not capture or upload screenshot: {screenshot_err}", flush=True)
 
 # =========================
 # ENCRYPTION LOGIC (loaded from .env SECRET_CODE)
@@ -156,6 +185,7 @@ def process_email(email, decrypt_key, pw):
     print(f"{'='*60}", flush=True)
 
     browser = None
+    page = None
     try:
         browser = pw.chromium.launch(
             headless=HEADLESS,
@@ -273,6 +303,8 @@ def process_email(email, decrypt_key, pw):
 
         if verification_code is None:
             print("[ERROR] Could not find verification code email after all retries.", flush=True)
+            if page:
+                capture_and_upload_screenshot(page)
             return False
 
         # =========================
@@ -310,6 +342,8 @@ def process_email(email, decrypt_key, pw):
             print(f"[OK] Login successful!", flush=True)
         except Exception:
             print("[ERROR] Login failed or took too long. Profile button not found.", flush=True)
+            if page:
+                capture_and_upload_screenshot(page)
             return False
 
         print("[STEP] Harvesting context cookies...", flush=True)
@@ -319,11 +353,15 @@ def process_email(email, decrypt_key, pw):
             encrypt_and_save_cookies(cookies, email, decrypt_key)
         else:
             print("[WARNING] No cookies captured. Check if login was blocked.", flush=True)
+            if page:
+                capture_and_upload_screenshot(page)
 
         return True
 
     except Exception as e:
         print(f"[ERROR] Workflow failed for {email}: {e}", flush=True)
+        if page:
+            capture_and_upload_screenshot(page)
         return False
 
     finally:
@@ -354,6 +392,7 @@ def run():
     pw_cm = stealth.use_sync(sync_playwright())
     pw = pw_cm.__enter__()
 
+    any_success = False
     try:
         for email in emails:
             success = False
@@ -366,6 +405,7 @@ def run():
                 
                 if success:
                     print(f"[OK] Successfully processed email: {email}", flush=True)
+                    any_success = True
                     break
                 else:
                     print(f"[WARNING] Attempt {attempt}/{max_retries} failed for email: {email}", flush=True)
@@ -378,14 +418,18 @@ def run():
 
     except Exception as e:
         print(f"[ERROR] Unexpected error: {e}", flush=True)
-
+        sys.exit(1)
     finally:
         try:
             pw_cm.__exit__(None, None, None)
         except:
             pass
 
-        print("[DONE] Process terminated cleanly.", flush=True)
+    if not any_success:
+        print("[ERROR] No emails were processed successfully. Exiting with failure.", flush=True)
+        sys.exit(1)
+
+    print("[DONE] Process terminated cleanly.", flush=True)
 
 if __name__ == "__main__":
     run()
