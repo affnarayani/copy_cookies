@@ -88,7 +88,22 @@ DESTINATIONS = [
     },
     {
         "owner": "affnarayani",
+        "name": "face_flow_ashwini",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
         "name": "face_flow_priyanka",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "face_flow_ujjawal",
+        "dest_folder": "chatgpt_cookies"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "face_flow_umang",
         "dest_folder": "chatgpt_cookies"
     },
     {
