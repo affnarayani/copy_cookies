@@ -63,7 +63,6 @@ jobs:
     - name: Run Fetch Cookies Script
       env:
         DECRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
-        SECRET_CODE: ${{ secrets.SECRET_CODE }}
         IMGBBB_API_KEY: ${{ secrets.IMGBBB_API_KEY }}
       run: |
         curl -I https://cloudflare.com/cdn-cgi/trace || echo "Proxy not responding"

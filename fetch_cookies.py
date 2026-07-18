@@ -88,17 +88,33 @@ def capture_and_upload_screenshot(page):
         print(f"[WARNING] Could not capture or upload screenshot: {screenshot_err}", flush=True)
 
 # =========================
-# ENCRYPTION LOGIC (loaded from .env SECRET_CODE)
+# ENCRYPTION LOGIC (inline)
 # =========================
-secret_code_source = os.getenv("SECRET_CODE")
-if not secret_code_source:
-    print("[ERROR] SECRET_CODE is missing in environment/.env", flush=True)
-    sys.exit(1)
-exec(secret_code_source, globals())
+def _derive_key_from_password(password: bytes, salt: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=200_000,
+    )
+    return kdf.derive(password)
+
+def _encrypt_bytes(data: bytes, password: str) -> dict:
+    salt = token_bytes(16)
+    nonce = token_bytes(12)
+    key = _derive_key_from_password(password.encode("utf-8"), salt)
+    aesgcm = AESGCM(key)
+    ct = aesgcm.encrypt(nonce, data, None)
+    return {
+        "v": 1,
+        "s": base64.b64encode(salt).decode("ascii"),
+        "n": base64.b64encode(nonce).decode("ascii"),
+        "ct": base64.b64encode(ct).decode("ascii"),
+    }
 
 def encrypt_and_save_cookies(cookies_data, email, decrypt_key):
     plaintext = json.dumps(cookies_data).encode("utf-8")
-    payload = _encrypt_bytes(plaintext, decrypt_key) # type: ignore
+    payload = _encrypt_bytes(plaintext, decrypt_key)
     
     filename = f"{email}_chatgpt_cookies.json.encrypted"
     target_path = os.path.join(OUTPUT_DIR, filename)
