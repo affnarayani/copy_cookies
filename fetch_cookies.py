@@ -224,7 +224,7 @@ def process_email(email, decrypt_key, pw):
         print(f"[STEP] Navigating to URL: {TARGET_URL}...", flush=True)
         page.goto(TARGET_URL, wait_until="domcontentloaded")
         print(f"[OK] {TARGET_URL} opened completely.", flush=True)
-        custom_random_wait(3, 6)
+        custom_random_wait(6, 12)
 
         print("[STEP] Checking if email field is already visible...", flush=True)
         email_field = page.get_by_role('textbox', name='Email address')
@@ -237,15 +237,15 @@ def process_email(email, decrypt_key, pw):
                 login_btn = page.get_by_label('Chat history').get_by_role('button', name='Log in')
             
             login_btn.click()
-            custom_random_wait(3, 6)
+            custom_random_wait(6, 12)
 
         print("[STEP] Entering email address...", flush=True)
         page.get_by_role('textbox', name='Email address').fill(email)
-        custom_random_wait(3, 6)
+        custom_random_wait(6, 12)
 
         print("[STEP] Clicking Continue...", flush=True)
         page.get_by_role('button', name='Continue', exact=True).click()
-        custom_random_wait(3, 6)
+        custom_random_wait(6, 12)
 
         # =========================
         # STEP 2: Open Atomic Mail in new tab and login
@@ -254,27 +254,39 @@ def process_email(email, decrypt_key, pw):
         atomic_page = context.new_page()
         atomic_page.goto(ATOMIC_MAIL_URL, wait_until="domcontentloaded")
         print(f"[OK] {ATOMIC_MAIL_URL} opened completely.", flush=True)
-        custom_random_wait(3, 6)
+        custom_random_wait(6, 12)
 
         print("[STEP] Clicking Sign In link...", flush=True)
         atomic_page.get_by_role('link', name='Sign In').click()
-        custom_random_wait(3, 6)
+        custom_random_wait(6, 12)
+
+        # Wait for the username field to be visible using multiple possible selectors
+        print("[STEP] Waiting for username field to be ready...", flush=True)
+        username_input = atomic_page.locator("input[name='username'], input[id='username'], input[type='text'], [data-testid='username-input']").first
+        username_input.wait_for(state="visible", timeout=10000)
+        custom_random_wait(1, 2)
 
         username = extract_username_from_email(email)
         print(f"[STEP] Entering username: {username}...", flush=True)
-        atomic_page.get_by_test_id('username-input').fill(username)
+        username_input.fill(username)
         custom_random_wait(2, 4)
 
         print("[STEP] Clicking login submit...", flush=True)
-        atomic_page.get_by_test_id('login-submit').click()
+        submit_btn = atomic_page.locator("button[type='submit'], input[type='submit'], [data-testid='login-submit'], button:has-text('Continue'), button:has-text('Sign In')").first
+        submit_btn.wait_for(state="visible", timeout=5000)
+        submit_btn.click()
         custom_random_wait(2, 4)
 
         print("[STEP] Entering password...", flush=True)
-        atomic_page.get_by_test_id('password-input').fill(decrypt_key)
+        password_input = atomic_page.locator("input[name='password'], input[id='password'], input[type='password'], [data-testid='password-input']").first
+        password_input.wait_for(state="visible", timeout=10000)
+        password_input.fill(decrypt_key)
         custom_random_wait(2, 4)
 
         print("[STEP] Clicking sign in button...", flush=True)
-        atomic_page.get_by_test_id('login-sign-in').click()
+        sign_in_btn = atomic_page.locator("button[type='submit'], input[type='submit'], [data-testid='login-sign-in'], button:has-text('Sign In'), button:has-text('Log in')").first
+        sign_in_btn.wait_for(state="visible", timeout=5000)
+        sign_in_btn.click()
         custom_random_wait(5, 8)
 
         # =========================
