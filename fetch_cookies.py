@@ -226,13 +226,18 @@ def process_email(email, decrypt_key, pw):
         print(f"[OK] {TARGET_URL} opened completely.", flush=True)
         custom_random_wait(3, 6)
 
-        print("[STEP] Clicking Login Button...", flush=True)
-        login_btn = page.get_by_test_id('login-button')
-        if not login_btn.is_visible():
-            login_btn = page.get_by_label('Chat history').get_by_role('button', name='Log in')
-        
-        login_btn.click()
-        custom_random_wait(3, 6)
+        print("[STEP] Checking if email field is already visible...", flush=True)
+        email_field = page.get_by_role('textbox', name='Email address')
+        if email_field.is_visible():
+            print("[INFO] Email field already visible. Skipping login button click.", flush=True)
+        else:
+            print("[STEP] Clicking Login Button...", flush=True)
+            login_btn = page.get_by_test_id('login-button')
+            if not login_btn.is_visible():
+                login_btn = page.get_by_label('Chat history').get_by_role('button', name='Log in')
+            
+            login_btn.click()
+            custom_random_wait(3, 6)
 
         print("[STEP] Entering email address...", flush=True)
         page.get_by_role('textbox', name='Email address').fill(email)
