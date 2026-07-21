@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 load_dotenv()
 
 HEADLESS = True
-TARGET_URL = "https://chatgpt.com/"
+TARGET_URL = "https://chatgpt.com/auth/login"
 ATOMIC_MAIL_URL = "https://atomicmail.io/"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
