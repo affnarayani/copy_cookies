@@ -7,6 +7,23 @@ import requests
 from git import Repo
 from dotenv import load_dotenv
 
+def upload_to_tmpfiles(screenshot_path):
+    url = "https://tmpfiles.org/api/v1/upload"
+    
+    with open(screenshot_path, "rb") as file:
+        response = requests.post(url, files={"file": file})
+        
+    if response.status_code == 200:
+        res_data = response.json()
+        # Direct view URL banane ke liye '/dl/' replace karte hain
+        page_url = res_data["data"]["url"]
+        direct_url = page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+        print(f"👉 DIRECT LINK (Expires in 2 Hours): {direct_url}")
+        return direct_url
+    else:
+        print(f"[WARNING] Upload Failed: {response.status_code}")
+        return None
+    
 # Robust cleanup handler: Read-only aur locked files ko handle karne ke liye
 def remove_readonly(func, path, excinfo):
     # 1. Pehle permission ko writable banayein
@@ -37,24 +54,7 @@ def upload_error_screenshot():
         print("[INFO] No error_screenshot.png found to upload.", flush=True)
         return
     try:
-        imgbb_key = os.getenv("IMGBBB_API_KEY")
-        if imgbb_key:
-            print("[OK] Uploading error screenshot to ImgBB...", flush=True)
-            url = f"https://api.imgbb.com/1/upload?expiration=86400&key={imgbb_key}"
-            
-            with open(screenshot_path, "rb") as file:
-                response = requests.post(url, files={"image": file})
-            
-            if response.status_code == 200:
-                res_data = response.json()
-                direct_url = res_data["data"]["display_url"]
-                print("\n" + "="*50, flush=True)
-                print(f"👉 DIRECT SCREENSHOT LINK: {direct_url}", flush=True)
-                print("="*50 + "\n", flush=True)
-            else:
-                print(f"[WARNING] ImgBB Upload Failed Status: {response.status_code}", flush=True)
-        else:
-            print("[WARNING] IMGBBB_API_KEY environment variable not found.", flush=True)
+        upload_to_tmpfiles(screenshot_path)
     except Exception as screenshot_err:
         print(f"[WARNING] Could not upload screenshot: {screenshot_err}", flush=True)
 

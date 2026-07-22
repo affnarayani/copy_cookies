@@ -59,33 +59,35 @@ def extract_username_from_email(email):
     """Extract username from email (part before @)."""
     return email.split('@')[0]
 
-def capture_and_upload_screenshot(page):
-    """Capture a screenshot of the current page and upload to ImgBB."""
-    try:
-        screenshot_path = "error_screenshot.png"
-        page.screenshot(path=screenshot_path, full_page=True)
-        print(f"[OK] Error screenshot captured: {screenshot_path}", flush=True)
+def upload_to_tmpfiles(screenshot_path):
+    url = "https://tmpfiles.org/api/v1/upload"
+    
+    with open(screenshot_path, "rb") as file:
+        response = requests.post(url, files={"file": file})
         
-        imgbb_key = os.getenv("IMGBBB_API_KEY")
-        if imgbb_key:
-            print("[OK] Uploading screenshot to ImgBB...", flush=True)
-            url = f"https://api.imgbb.com/1/upload?expiration=86400&key={imgbb_key}"
-            
-            with open(screenshot_path, "rb") as file:
-                response = requests.post(url, files={"image": file})
-            
-            if response.status_code == 200:
-                res_data = response.json()
-                direct_url = res_data["data"]["display_url"]
-                print("\n" + "="*50, flush=True)
-                print(f"👉 DIRECT SCREENSHOT LINK: {direct_url}", flush=True)
-                print("="*50 + "\n", flush=True)
-            else:
-                print(f"[WARNING] ImgBB Upload Failed Status: {response.status_code}", flush=True)
-        else:
-            print("[WARNING] IMGBBB_API_KEY environment variable not found.", flush=True)
-    except Exception as screenshot_err:
-        print(f"[WARNING] Could not capture or upload screenshot: {screenshot_err}", flush=True)
+    if response.status_code == 200:
+        res_data = response.json()
+        page_url = res_data["data"]["url"]
+        direct_url = page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+        print(f"👉 DIRECT LINK (Expires in 2 Hours): {direct_url}")
+        return direct_url
+    else:
+        print(f"[WARNING] Upload Failed: {response.status_code}")
+        return None
+
+def capture_and_upload_screenshot(page, email):
+    """Takes a screenshot of the current page and uploads it."""
+    if not page:
+        return None
+    try:
+        screenshot_filename = f"{extract_username_from_email(email)}_error.png"
+        screenshot_path = os.path.join(OUTPUT_DIR, screenshot_filename)
+        page.screenshot(path=screenshot_path)
+        print(f"[INFO] Saved error screenshot to: {screenshot_path}", flush=True)
+        return upload_to_tmpfiles(screenshot_path)
+    except Exception as e:
+        print(f"[WARNING] Failed to capture/upload screenshot: {e}", flush=True)
+        return None
 
 # =========================
 # ENCRYPTION LOGIC (inline)
@@ -132,7 +134,6 @@ def find_verification_code_in_email(atomic_page):
     Returns the code or None if not found.
     """
     try:
-        # Click first email in the inbox list
         print("[INFO] Clicking first email in inbox...", flush=True)
         try:
             atomic_page.locator('//main//li[1]//a[1]').click(timeout=5000)
@@ -143,9 +144,7 @@ def find_verification_code_in_email(atomic_page):
             atomic_page.locator('//main//li[1]//a[1]').click()
         custom_random_wait(3, 5)
 
-        # Look for a cell containing the verification code text
         print("[INFO] Looking for verification code cell inside email...", flush=True)
-        # Use filter with has_text to find the cell that contains the e
         code_cells = atomic_page.get_by_role('cell').filter(has_text=re.compile(r'\d{6}'))
         count = code_cells.count()
         
@@ -166,8 +165,7 @@ def find_verification_code_in_email(atomic_page):
         if not found_code:
             print("[WARNING] No verification code cell found in email.", flush=True)
             return None
-        
-        print("[WARNING] No verification code cell found in email.", flush=True)
+
         return None
     except Exception as e:
         print(f"[WARNING] Error while reading email: {e}", flush=True)
@@ -260,7 +258,6 @@ def process_email(email, decrypt_key, pw):
         atomic_page.get_by_role('link', name='Sign In').click()
         custom_random_wait(6, 12)
 
-        # Wait for the username field to be visible using multiple possible selectors
         print("[STEP] Waiting for username field to be ready...", flush=True)
         username_input = atomic_page.locator("input[name='username'], input[id='username'], input[type='text'], [data-testid='username-input']").first
         username_input.wait_for(state="visible", timeout=10000)
@@ -299,17 +296,14 @@ def process_email(email, decrypt_key, pw):
         for outer_attempt in range(max_outer_retries):
             print(f"\n[INFO] Outer retry set {outer_attempt + 1}/{max_outer_retries}", flush=True)
             
-            # Inner retries: check atomic mail page up to 5 times
             max_inner_retries = 5
             for inner_attempt in range(max_inner_retries):
                 print(f"[INFO] Inner retry {inner_attempt + 1}/{max_inner_retries} - checking for verification email...", flush=True)
                 
-                # Click first email in inbox and look for code
                 verification_code = find_verification_code_in_email(atomic_page)
                 if verification_code:
                     break
                 
-                # Go back to inbox and reload
                 go_back_to_inbox(atomic_page)
                 atomic_page.reload(wait_until="domcontentloaded")
                 custom_random_wait(5, 8)
@@ -329,7 +323,6 @@ def process_email(email, decrypt_key, pw):
                 page.locator("button[value='resend']").click()
             custom_random_wait(3, 5)
             
-            # Switch back to atomic mail for next retry set
             print("[STEP] Switching back to Atomic Mail...", flush=True)
             atomic_page.bring_to_front()
             custom_random_wait(2, 4)
@@ -337,7 +330,7 @@ def process_email(email, decrypt_key, pw):
         if verification_code is None:
             print("[ERROR] Could not find verification code email after all retries.", flush=True)
             if page:
-                capture_and_upload_screenshot(page)
+                capture_and_upload_screenshot(page, email)
             return False
 
         # =========================
@@ -351,7 +344,6 @@ def process_email(email, decrypt_key, pw):
         custom_random_wait(1, 2)
         page.keyboard.press('Tab')
         custom_random_wait(1, 2)
-        # Find the code input field and fill it (using xpath= prefix for XPath selector)
         code_field = page.locator("xpath=/html[1]/body[1]/div[1]/div[1]/fieldset[1]/form[1]/div[1]/div[1]/div[1]/div[1]/label[1]/div[1]")
         code_field.wait_for(state="visible", timeout=5000)
         code_field.click()
@@ -376,7 +368,7 @@ def process_email(email, decrypt_key, pw):
         except Exception:
             print("[ERROR] Login failed or took too long. Profile button not found.", flush=True)
             if page:
-                capture_and_upload_screenshot(page)
+                capture_and_upload_screenshot(page, email)
             return False
 
         print("[STEP] Harvesting context cookies...", flush=True)
@@ -387,14 +379,14 @@ def process_email(email, decrypt_key, pw):
         else:
             print("[WARNING] No cookies captured. Check if login was blocked.", flush=True)
             if page:
-                capture_and_upload_screenshot(page)
+                capture_and_upload_screenshot(page, email)
 
         return True
 
     except Exception as e:
         print(f"[ERROR] Workflow failed for {email}: {e}", flush=True)
         if page:
-            capture_and_upload_screenshot(page)
+            capture_and_upload_screenshot(page, email)
         return False
 
     finally:
@@ -404,7 +396,6 @@ def process_email(email, decrypt_key, pw):
                 print(f"[INFO] Browser closed for {email}.", flush=True)
             except:
                 pass
-
 
 def run():
     print("[START] Script started", flush=True)
