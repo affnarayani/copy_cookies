@@ -19,7 +19,8 @@ DESTINATION_FOLDERS = [
     r"D:\Coding\face_flow_priyanka\chatgpt_cookies",
     r"D:\Coding\face_flow_ujjawal\chatgpt_cookies",
     r"D:\Coding\face_flow_umang\chatgpt_cookies",
-    r"D:\Coding\clear_llm\cookies_gpt"
+    r"D:\Coding\clear_llm\cookies_gpt",
+    r"D:\Coding\book_mint_ujjawal\cookies"
 ]
 # ===============================================================
 

@@ -140,6 +140,11 @@ DESTINATIONS = [
         "owner": "affnarayani",
         "name": "clear_llm",
         "dest_folder": "cookies_gpt"
+    },
+    {
+        "owner": "affnarayani",
+        "name": "book_mint_ujjawal",
+        "dest_folder": "cookies"
     }
 ]
 
