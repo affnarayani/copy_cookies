@@ -1,11 +1,24 @@
 import os
 import sys
+import gc
 import shutil
 import stat
+import tempfile
 import time
 import requests
 from git import Repo
 from dotenv import load_dotenv
+
+# Git ke interactive credential prompt ko band karein taaki script kabhi hang na ho.
+# (Token galat/expire ho to turant error mile, na ki GUI prompt par chup-chaap wait kare.)
+os.environ["GIT_TERMINAL_PROMPT"] = "0"
+os.environ["GCM_INTERACTIVE"] = "never"
+
+# Slow/stalled network par git khud abort kar de (yeh cross-platform hai; GitPython ka
+# kill_after_timeout Windows pe supported nahi hai). 60 sec tak speed 1 KB/s se kam rahe
+# to git abort kar dega - isse clone kabhi ghanton tak latak nahi sakta.
+os.environ["GIT_HTTP_LOW_SPEED_LIMIT"] = "1000"
+os.environ["GIT_HTTP_LOW_SPEED_TIME"] = "60"
 
 def upload_to_tmpfiles(screenshot_path):
     url = "https://tmpfiles.org/api/v1/upload"
@@ -32,20 +45,36 @@ def remove_readonly(func, path, excinfo):
     except Exception:
         pass
         
-    # 2. Windows File Lock (WinError 32) ke liye retry logic (Max 3 baar koshish)
-    for i in range(3):
+    # 2. Windows file/dir lock ke liye retry logic (Max 5 baar koshish).
+    #    Sirf WinError 32 par nahi, balki kisi bhi transient OSError par retry karte hain
+    #    (antivirus / search indexer / Git process kabhi-kabhi aur error codes dete hain).
+    for i in range(5):
         try:
             func(path)
             return # Agar delete ho gaya toh loop se baahar
-        except OSError as e:
-            # Agar error 'File being used by another process' hai, toh thoda wait karein
-            if getattr(e, 'winerror', None) == 32 or e.errno == 32:
-                time.sleep(1) # 1 second ka pause taaki Git process release ho jaye
-            else:
-                break
+        except OSError:
+            time.sleep(1) # 1 second ka pause taaki file/dir lock release ho jaye
                 
-    # Agar 3 baar mein bhi na ho, toh crash karne ke badle warning dekar aage badhein
-    print(f"[WARNING] Temporary file release nahi ho payi, skipping: {path}")
+    # Agar 5 baar mein bhi na ho, toh crash karne ke badle warning dekar aage badhein
+    print(f"[WARNING] File release nahi ho payi, skipping: {path}")
+
+
+def clean_temp_dir(path):
+    """Temp workspace ko poori tarah delete karta hai aur success (True/False) return karta hai.
+
+    Windows par kabhi-kabhi folder ka root handle der se release hota hai, isliye
+    rmtree ko kuch dafa (backoff ke saath) retry karte hain.
+    """
+    if not os.path.exists(path):
+        return True
+
+    for attempt in range(3):
+        shutil.rmtree(path, onerror=remove_readonly)
+        if not os.path.exists(path):
+            return True
+        time.sleep(1)
+
+    return not os.path.exists(path)
 
 def upload_error_screenshot():
     """Upload error_screenshot.png to ImgBB if it exists."""
@@ -148,9 +177,15 @@ DESTINATIONS = [
     }
 ]
 
-TEMP_DIR = "./temp_destination_repo"
+# Har repo ke liye isi prefix se ek naya, unique temp folder banega
+TEMP_DIR_PREFIX = "temp_destination_repo_"
 
 any_failure = False
+
+# Script start hone par purane (crash se bache) temp folders saaf karein
+for _entry in os.listdir("."):
+    if _entry.startswith(TEMP_DIR_PREFIX):
+        clean_temp_dir(os.path.join(".", _entry))
 
 # Loop chala kar har repository ko bari-bari update karenge
 for dest in DESTINATIONS:
@@ -165,16 +200,26 @@ for dest in DESTINATIONS:
     print(f"[INFO] Starting sync for: {repo_name}...")
     print("="*50)
 
+    dest_repo = None
+    origin = None
+    temp_dir = None
     try:
-        # Purana koi temp folder bacha ho toh use pehle clean karein
-        if os.path.exists(TEMP_DIR):
-            shutil.rmtree(TEMP_DIR, onerror=remove_readonly)
+        # Har repo ke liye ek naya, unique temp folder banayein
+        temp_dir = tempfile.mkdtemp(prefix=f"{TEMP_DIR_PREFIX}{repo_name}_", dir=".")
+        print(f"[INFO] Created fresh temp folder: {temp_dir}")
             
         # 1. Repo Clone karein
         print(f"Cloning {repo_name}...")
-        dest_repo = Repo.clone_from(dest_repo_url, TEMP_DIR)
+        # Shallow clone (--depth 1): in repos ki history bahut bhaari hai (har run ke
+        # screenshots + cookies), isliye full clone hang jaisa lagta hai. Depth 1 se sirf
+        # latest snapshot aata hai -> bahut tez aur chhota.
+        dest_repo = Repo.clone_from(
+            dest_repo_url,
+            temp_dir,
+            multi_options=["--depth", "1", "--single-branch", "--no-tags"],
+        )
         
-        target_path = os.path.join(TEMP_DIR, dest_folder_name)
+        target_path = os.path.join(temp_dir, dest_folder_name)
 
         # 2. Copy se pehle destination folder ko poora EMPTY karein (purana content hata dein)
         # NOTE: copytree khud target folder banata hai, isliye yahan dobara create nahi karte.
@@ -204,14 +249,25 @@ for dest in DESTINATIONS:
         any_failure = True
 
     finally:
-        # Har repo ka kaam khatam hone ke baad temp folder saaf karein
-        if os.path.exists(TEMP_DIR):
-            print(f"Cleaning up temporary workspace for {repo_name}...")
+        # GitPython ke SAARE references release karein, warna Windows par temp folder ka
+        # handle open rehta hai aur folder delete nahi hota. Dhyan rahe: `origin` (Remote)
+        # bhi repo ko reference karta hai (origin.repo), isliye use bhi None karna zaroori hai.
+        origin = None
+        if dest_repo is not None:
             try:
-                shutil.rmtree(TEMP_DIR, onerror=remove_readonly)
+                dest_repo.close()
+            except Exception:
+                pass
+        dest_repo = None
+        gc.collect()
+
+        # Is repo ka kaam khatam - ab sirf isi repo ka temp folder delete karein
+        if temp_dir and os.path.exists(temp_dir):
+            print(f"Cleaning up temporary workspace for {repo_name}...")
+            if clean_temp_dir(temp_dir):
                 print("Workspace cleaned successfully!")
-            except Exception as cleanup_error:
-                print(f"[WARNING] Temporary folder delete nahi ho paya. Error: {cleanup_error}")
+            else:
+                print(f"[WARNING] Temporary folder abhi bhi maujood hai: {temp_dir}")
 
 if any_failure:
     print("\n[ERROR] Some repositories failed to sync. Exiting with failure.", flush=True)
