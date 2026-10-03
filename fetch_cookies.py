@@ -362,7 +362,7 @@ def process_email(email, decrypt_key, pw):
         # =========================
         print("[STEP] Verifying login success...", flush=True)
         try:
-            profile_btn = page.get_by_role('button').filter(has_text='Free')
+            profile_btn = page.get_by_role('button').filter(has_text='Free').or_(page.get_by_role('button', name=re.compile(r'.*Free, open'))).or_(page.get_by_role('button', name='Open profile menu'))
             profile_btn.wait_for(timeout=10000)
             print(f"[OK] Login successful!", flush=True)
         except Exception:
