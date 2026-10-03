@@ -18,7 +18,7 @@ def upload_to_tmpfiles(screenshot_path):
         # Direct view URL banane ke liye '/dl/' replace karte hain
         page_url = res_data["data"]["url"]
         direct_url = page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-        print(f"👉 DIRECT LINK (Expires in 2 Hours): {direct_url}")
+        print(f"[INFO] DIRECT LINK (Expires in 2 Hours): {direct_url}")
         return direct_url
     else:
         print(f"[WARNING] Upload Failed: {response.status_code}")
@@ -45,7 +45,7 @@ def remove_readonly(func, path, excinfo):
                 break
                 
     # Agar 3 baar mein bhi na ho, toh crash karne ke badle warning dekar aage badhein
-    print(f"⚠️ Temporary file release nahi ho payi, skipping: {path}")
+    print(f"[WARNING] Temporary file release nahi ho payi, skipping: {path}")
 
 def upload_error_screenshot():
     """Upload error_screenshot.png to ImgBB if it exists."""
@@ -65,14 +65,14 @@ load_dotenv()
 PAT_TOKEN_ALL = os.getenv("PAT_TOKEN_ALL")
 
 if not PAT_TOKEN_ALL:
-    raise ValueError("❌ Error: .env file mein 'PAT_TOKEN_ALL' nahi mila! Pehle use check karein.")
+    raise ValueError("[ERROR] .env file mein 'PAT_TOKEN_ALL' nahi mila! Pehle use check karein.")
 
 # Local Source Folder
 SOURCE_FOLDER = "chatgpt_cookies"
 
 # Check karein ki local source folder exist karta hai ya nahi
 if not os.path.exists(SOURCE_FOLDER):
-    raise FileNotFoundError(f"❌ Error: Local folder '{SOURCE_FOLDER}' nahi mila! Script ko sahi jagah se run karein.")
+    raise FileNotFoundError(f"[ERROR] Local folder '{SOURCE_FOLDER}' nahi mila! Script ko sahi jagah se run karein.")
 
 # --- MULTIPLE DESTINATIONS CONFIGURATION ---
 DESTINATIONS = [
@@ -162,7 +162,7 @@ for dest in DESTINATIONS:
     dest_repo_url = f"https://{PAT_TOKEN_ALL}@github.com/{repo_owner}/{repo_name}.git"
     
     print("\n" + "="*50)
-    print(f"🔄 Starting sync for: {repo_name}...")
+    print(f"[INFO] Starting sync for: {repo_name}...")
     print("="*50)
 
     try:
@@ -176,9 +176,11 @@ for dest in DESTINATIONS:
         
         target_path = os.path.join(TEMP_DIR, dest_folder_name)
 
-        # 2. Fresh copy ke liye purana target folder saaf karein
+        # 2. Copy se pehle destination folder ko poora EMPTY karein (purana content hata dein)
+        # NOTE: copytree khud target folder banata hai, isliye yahan dobara create nahi karte.
         if os.path.exists(target_path):
             shutil.rmtree(target_path, onerror=remove_readonly)
+            print(f"[INFO] Emptied old folder: {target_path}")
         
         # 3. Contents copy karein
         print(f"Copying '{SOURCE_FOLDER}' contents to '{dest_folder_name}'...")
@@ -192,12 +194,12 @@ for dest in DESTINATIONS:
             dest_repo.index.commit("Automated Sync: Updated cookies via multi-repo script")
             origin = dest_repo.remote(name='origin')
             origin.push()
-            print(f"🎉 Success! Cookies '{repo_name}' mein copy aur push ho gayi hain.")
+            print(f"[OK] Success! Cookies '{repo_name}' mein copy aur push ho gayi hain.")
         else:
             print(f"Silent Sync: '{repo_name}' mein koi badlav nahi mila, dono pehle se same hain.")
 
     except Exception as e:
-        print(f"❌ Error occurred while processing {repo_name}: {e}")
+        print(f"[ERROR] Error occurred while processing {repo_name}: {e}")
         upload_error_screenshot()
         any_failure = True
 
@@ -209,10 +211,10 @@ for dest in DESTINATIONS:
                 shutil.rmtree(TEMP_DIR, onerror=remove_readonly)
                 print("Workspace cleaned successfully!")
             except Exception as cleanup_error:
-                print(f"⚠️ Temporary folder delete nahi ho paya. Error: {cleanup_error}")
+                print(f"[WARNING] Temporary folder delete nahi ho paya. Error: {cleanup_error}")
 
 if any_failure:
-    print("\n❌ Some repositories failed to sync. Exiting with failure.", flush=True)
+    print("\n[ERROR] Some repositories failed to sync. Exiting with failure.", flush=True)
     sys.exit(1)
 else:
-    print("\n🚀 All repository sync processes finished successfully!")
+    print("\n[DONE] All repository sync processes finished successfully!")

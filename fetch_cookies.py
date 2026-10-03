@@ -69,7 +69,7 @@ def upload_to_tmpfiles(screenshot_path):
         res_data = response.json()
         page_url = res_data["data"]["url"]
         direct_url = page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-        print(f"👉 DIRECT LINK (Expires in 2 Hours): {direct_url}")
+        print(f"[INFO] DIRECT LINK (Expires in 2 Hours): {direct_url}")
         return direct_url
     else:
         print(f"[WARNING] Upload Failed: {response.status_code}")
