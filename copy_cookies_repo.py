@@ -20,19 +20,25 @@ os.environ["GCM_INTERACTIVE"] = "never"
 os.environ["GIT_HTTP_LOW_SPEED_LIMIT"] = "1000"
 os.environ["GIT_HTTP_LOW_SPEED_TIME"] = "60"
 
-def upload_to_tmpfiles(screenshot_path):
-    url = "https://tmpfiles.org/api/v1/upload"
-    
+def upload_to_onlyfiles(screenshot_path):
+    url = "https://api.onlyfiles.com/v1/upload"
+
     with open(screenshot_path, "rb") as file:
-        response = requests.post(url, files={"file": file})
-        
+        # expire=172800 se file 48 ghante (2 din) tak live rehti hai (maximum allowed).
+        response = requests.post(url, files={"file": file}, data={"expire": 172800})
+
     if response.status_code == 200:
         res_data = response.json()
-        # Direct view URL banane ke liye '/dl/' replace karte hain
-        page_url = res_data["data"]["url"]
-        direct_url = page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-        print(f"[INFO] DIRECT LINK (Expires in 2 Hours): {direct_url}")
-        return direct_url
+        if res_data.get("status"):
+            # 'full' URL direct file link hai (id + filename ke saath).
+            direct_url = res_data["data"]["file"]["url"]["full"]
+            print(f"[INFO] DIRECT LINK (Expires in 48 Hours / 172800s): {direct_url}")
+            return direct_url
+        else:
+            error = res_data.get("error", {})
+            print(f"[WARNING] Upload Failed: {error.get('message', 'Unknown error')} "
+                  f"(code: {error.get('code')})")
+            return None
     else:
         print(f"[WARNING] Upload Failed: {response.status_code}")
         return None
@@ -77,13 +83,13 @@ def clean_temp_dir(path):
     return not os.path.exists(path)
 
 def upload_error_screenshot():
-    """Upload error_screenshot.png to ImgBB if it exists."""
+    """Upload error_screenshot.png to OnlyFiles if it exists."""
     screenshot_path = "error_screenshot.png"
     if not os.path.exists(screenshot_path):
         print("[INFO] No error_screenshot.png found to upload.", flush=True)
         return
     try:
-        upload_to_tmpfiles(screenshot_path)
+        upload_to_onlyfiles(screenshot_path)
     except Exception as screenshot_err:
         print(f"[WARNING] Could not upload screenshot: {screenshot_err}", flush=True)
 
