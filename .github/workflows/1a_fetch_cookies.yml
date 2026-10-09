@@ -75,26 +75,26 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fetch-cookies-error-screenshot
-        path: error_screenshot.png
+        path: chatgpt_cookies/*_error.png
         if-no-files-found: ignore
         retention-days: 3
 
-    - name: Commit and Push Cookie Changes
+    - name: Commit and Push Cookie & Account Changes
       if: always()
       run: |
-        # Check agar chatgpt_cookies directory mein koi changes hain
-        if ! git diff --quiet chatgpt_cookies/; then
-          echo "[OK] Changes detected in chatgpt_cookies/. Stashing modified files to pull latest..."
+        # Check if there are changes in chatgpt_cookies/ or accounts.txt
+        if [ -n "$(git status --porcelain chatgpt_cookies/ accounts.txt)" ]; then
+          echo "[OK] Changes detected in chatgpt_cookies/ or accounts.txt. Stashing modified files to pull latest..."
           git stash
           
           git pull origin ${GITHUB_REF_NAME} --rebase
           
           git stash pop
           
-          git add chatgpt_cookies/
-          git commit -m "Automated: Fresh ChatGPT cookies updated [skip ci]"
+          git add chatgpt_cookies/ accounts.txt
+          git commit -m "Automated: Fresh ChatGPT cookies & accounts updated [skip ci]"
           
           git push origin ${GITHUB_REF_NAME} || (git pull origin ${GITHUB_REF_NAME} --rebase && git push origin ${GITHUB_REF_NAME})
         else
-          echo "[INFO] No changes detected in chatgpt_cookies/. Skipping push."
+          echo "[INFO] No changes detected in chatgpt_cookies/ or accounts.txt. Skipping push."
         fi
