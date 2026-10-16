@@ -105,13 +105,11 @@ def upload_to_onlyfiles(screenshot_path):
     url = "https://api.onlyfiles.com/v1/upload"
 
     with open(screenshot_path, "rb") as file:
-        # expire=172800 se file 48 ghante (2 din) tak live rehti hai (maximum allowed).
         response = requests.post(url, files={"file": file}, data={"expire": 172800})
 
     if response.status_code == 200:
         res_data = response.json()
         if res_data.get("status"):
-            # 'full' URL direct file link hai (id + filename ke saath).
             direct_url = res_data["data"]["file"]["url"]["full"]
             print(f"[INFO] DIRECT LINK (Expires in 48 Hours / 172800s): {direct_url}")
             return direct_url
@@ -271,11 +269,9 @@ def process_email(email, decrypt_key, pw):
         # TAB MONITOR: Auto close unexpected third tabs / ads
         # =========================
         def handle_new_page(new_page):
-            # Safe allowed URLs / domains
             def is_allowed(url):
                 return "chatgpt.com" in url or "openai.com" in url or "atomicmail.io" in url or url == "about:blank"
 
-            # Check immediately
             if not is_allowed(new_page.url):
                 print(f"[AUTO-CLOSE] Closing extra/ad tab: {new_page.url}", flush=True)
                 try:
@@ -284,7 +280,6 @@ def process_email(email, decrypt_key, pw):
                     pass
                 return
 
-            # If opened blank or navigating to ad, monitor its navigation
             def on_framenavigated(frame):
                 if frame == new_page.main_frame:
                     if not is_allowed(frame.url):
@@ -536,11 +531,11 @@ def run():
     pw_cm = stealth.use_sync(sync_playwright())
     pw = pw_cm.__enter__()
 
-    any_success = False
     try:
         for email in emails:
             success = False
             max_retries = 5
+            status = "FAILED"
             
             for attempt in range(1, max_retries + 1):
                 print(f"\n[INFO] Attempt {attempt}/{max_retries} for email: {email}", flush=True)
@@ -549,11 +544,11 @@ def run():
                 
                 if status == "SUCCESS":
                     print(f"[OK] Successfully processed email: {email}", flush=True)
-                    any_success = True
                     success = True
                     break
                 elif status == "BLOCKED":
                     print(f"[SKIP] Account is blocked for email: {email}. Skipping all remaining retries.", flush=True)
+                    success = True  # Treat blocked as handled so it doesn't trigger final exit
                     break
                 else:
                     print(f"[WARNING] Attempt {attempt}/{max_retries} failed for email: {email}", flush=True)
@@ -561,8 +556,10 @@ def run():
                         print(f"[INFO] Retrying email: {email} with fresh browser session...", flush=True)
                         custom_random_wait(3, 5)
             
+            # Agar 5 attempts ke baad bhi success ya block nahi hua, matlab completely fail ho gaya
             if not success and status != "BLOCKED":
-                print(f"[ERROR] All {max_retries} attempts failed for email: {email}. Skipping to next email.", flush=True)
+                print(f"[ERROR] All {max_retries} attempts failed for email: {email}. Exiting program with sys.exit(1).", flush=True)
+                sys.exit(1)
 
     except Exception as e:
         print(f"[ERROR] Unexpected error: {e}", flush=True)
@@ -572,10 +569,6 @@ def run():
             pw_cm.__exit__(None, None, None)
         except:
             pass
-
-    if not any_success:
-        print("[ERROR] No emails were processed successfully. Exiting with failure.", flush=True)
-        sys.exit(1)
 
     print("[DONE] Process terminated cleanly.", flush=True)
 
