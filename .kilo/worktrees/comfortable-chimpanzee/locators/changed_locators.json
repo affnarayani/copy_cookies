@@ -1,0 +1,10 @@
+{
+  "chatgpt.chatgpt_account_block_error": {
+    "platform": "chatgpt",
+    "locator_name": "chatgpt_account_block_error",
+    "broken_locator": "page.get_by_text(\"error_code:\")",
+    "suggested_locator": "page.locator(\"[data-testid='error-banner']\")",
+    "timestamp": "2026-11-13T13:40:00.000000Z",
+    "reason": "Test entry for auto-correct append new fallback"
+  }
+}

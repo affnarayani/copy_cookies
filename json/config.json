@@ -1,0 +1,132 @@
+{
+  "repo_owner": "affnarayani",
+  "paths": {
+    "accounts_file": "accounts/accounts.txt",
+    "output_dir": "chatgpt_cookies",
+    "error_dir": "error",
+    "error_screenshot": "error/error_screenshot.png",
+    "chatgpt_locators_file": "locators/chatgpt_locators.txt",
+    "atomicmail_locators_file": "locators/atomicmail_locators.txt",
+    "cookies_file": "cookies.json",
+    "encrypted_cookies_file": "cookies.json.encrypted"
+  },
+  "browser": {
+    "headless": true,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "target_url": "https://chatgpt.com/auth/login",
+    "atomicmail_url": "https://atomicmail.io/",
+    "locator_timeout_ms": 15000,
+    "typing_delay_ms": 50
+  },
+  "waits": {
+    "min_absolute_wait": 6.0,
+    "max_absolute_wait": 12.0,
+    "min_random_wait": 2.0,
+    "max_random_wait": 4.0
+  },
+  "onlyfiles": {
+    "enabled": true,
+    "upload_url": "https://api.onlyfiles.com/v1/upload",
+    "expire_seconds": 172800
+  },
+  "gemini": {
+    "enabled": true,
+    "api_base": "https://generativelanguage.googleapis.com/v1beta",
+    "model": "gemini-3.5-flash-lite",
+    "request_timeout_seconds": 60,
+    "max_attempts": 3
+  },
+  "locator": {
+    "auto_correct_locator": true
+  },
+  "encryption": {
+    "iterations": 200000,
+    "key_length": 32,
+    "salt_bytes": 16,
+    "nonce_bytes": 12
+  },
+  "retry": {
+    "max_email_retries": 5,
+    "max_outer_retries": 5,
+    "max_inner_retries": 5
+  },
+  "git": {
+    "clone_depth": 1,
+    "low_speed_limit": 1000,
+    "low_speed_time": 60,
+    "commit_message": "Automated Sync: Updated cookies via multi-repo script",
+    "temp_dir_prefix": "temp_destination_repo_"
+  },
+  "destinations": [
+    {
+      "name": "red_suite",
+      "repo_folder": "cookies",
+      "local_path": "D:\\Coding\\red_suite\\cookies"
+    },
+    {
+      "name": "medium_forge",
+      "repo_folder": "cookies",
+      "local_path": "D:\\Coding\\medium_forge\\cookies"
+    },
+    {
+      "name": "writer_stack",
+      "repo_folder": "cookies",
+      "local_path": "D:\\Coding\\writer_stack\\cookies"
+    },
+    {
+      "name": "q_rise",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\q_rise\\chatgpt_cookies"
+    },
+    {
+      "name": "pin_pilot_ujjawal",
+      "repo_folder": "cookies",
+      "local_path": "D:\\Coding\\pin_pilot_ujjawal\\cookies"
+    },
+    {
+      "name": "link_boost_priyanka",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\link_boost_priyanka\\chatgpt_cookies"
+    },
+    {
+      "name": "link_boost_ujjawal",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\link_boost_ujjawal\\chatgpt_cookies"
+    },
+    {
+      "name": "link_boost_umang",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\link_boost_umang\\chatgpt_cookies"
+    },
+    {
+      "name": "face_flow_ashwini",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\face_flow_ashwini\\chatgpt_cookies"
+    },
+    {
+      "name": "face_flow_priyanka",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\face_flow_priyanka\\chatgpt_cookies"
+    },
+    {
+      "name": "face_flow_ujjawal",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\face_flow_ujjawal\\chatgpt_cookies"
+    },
+    {
+      "name": "face_flow_umang",
+      "repo_folder": "chatgpt_cookies",
+      "local_path": "D:\\Coding\\face_flow_umang\\chatgpt_cookies"
+    },
+    {
+      "name": "clear_llm",
+      "repo_folder": "cookies_gpt",
+      "local_path": "D:\\Coding\\clear_llm\\cookies_gpt"
+    },
+    {
+      "name": "book_mint_ujjawal",
+      "repo_folder": "cookies",
+      "local_path": "D:\\Coding\\book_mint_ujjawal\\cookies"
+    }
+  ]
+}

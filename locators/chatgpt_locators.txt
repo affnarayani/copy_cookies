@@ -1,0 +1,45 @@
+# ==========================================================================
+# ChatGPT locators
+# --------------------------------------------------------------------------
+# Each line is a real Playwright locator expression, identical to what the
+# Python scripts used before this file existed:
+#
+#     key = <playwright expression> :: <vision description>
+#
+# - The expression is evaluated with `page` (the current Playwright Page) and
+#   `re` in scope. Edit it exactly as you would edit the Python call.
+# - Everything after ` ::` is optional. It is the natural-language description
+#   handed to Gemini Vision when the expression matches nothing, so keep it
+#   specific about position, label, and icon.
+# - `{placeholder}` values are filled by the calling script.
+# - Use `||`-free syntax: a key holds exactly ONE expression. For alternative
+#   selectors, chain them with Playwright's own `.or_(...)`)
+#
+# Keep this file free of Python-side locators: scripts must only reference keys.
+# ==========================================================================
+
+chatgpt_history_region = page.get_by_label("Chat history") ::
+chatgpt_login_button = page.get_by_test_id("login-button") ::
+chatgpt_login_button = page.locator("chatgpt_history_region").get_by_role("button", name="Log in") ::
+chatgpt_login_button_menu_item = page.get_by_role("button", name="Log in") ::
+chatgpt_email_input = page.get_by_role("textbox", name="Email address") ::
+chatgpt_continue_button = page.get_by_role("button", name="Continue", exact=True) ::
+chatgpt_resend_email_button = page.get_by_role("button", name="Resend email") ::
+chatgpt_resend_email_button = page.locator("button[value='resend']") ::
+chatgpt_verification_code_input = page.locator("xpath=/html[1]/body[1]/div[1]/div[1]/fieldset[1]/form[1]/div[1]/div[1]/div[1]/div[1]/label[1]/div[1]") ::
+chatgpt_verification_code_input = page.get_by_label("Code") ::
+chatgpt_continue_button_after_code = page.get_by_role("button", name="Continue") ::
+chatgpt_account_block_error = page.get_by_role("button", name="Try again") ::
+chatgpt_account_block_error = page.locator("[data-testid='error-banner']") ::
+chatgpt_existing_workspace_row = page.get_by_test_id("existing-workspace-row") ::
+chatgpt_existing_workspace_open_button = page.locator("chatgpt_existing_workspace_row").get_by_role("button", name="Open") ::
+chatgpt_existing_workspace_open_button_role = page.get_by_role("button", name="Open") ::
+chatgpt_profile_button = page.get_by_role("button").filter(has_text="Free") ::
+chatgpt_profile_button = page.get_by_role("button", name=re.compile(r".*Free, open")) ::
+chatgpt_profile_button = page.get_by_role("button", name="Open profile menu") ::
+chatgpt_profile_button = page.locator("[data-testid='profile-button']") ::
+chatgpt_sign_up_button = page.get_by_role("button", name="Sign up for free") ::
+chatgpt_full_name_input = page.get_by_role("textbox", name="Full name") ::
+chatgpt_age_container = page.locator("div").filter(has_text=re.compile(r"^Age$")).nth(3) ::
+chatgpt_age_input = page.locator("xpath=/html[1]/body[1]/div[2]/div[1]/div[1]/fieldset[1]/form[1]/div[1]/div[1]/div[2]/div[1]/div[1]/input[1]") ::
+chatgpt_ask_chatgpt_input = page.get_by_role("textbox", name="Ask ChatGPT") ::

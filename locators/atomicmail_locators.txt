@@ -1,0 +1,51 @@
+# ==========================================================================
+# Atomic Mail locators
+# --------------------------------------------------------------------------
+# Each line is a real Playwright locator expression, identical to what the
+# Python scripts used before this file existed:
+#
+#     key = <playwright expression> :: <vision description>
+#
+# - The expression is evaluated with `page` (the current Playwright Page) and
+#   `re` in scope. Edit it exactly as you would edit the Python call.
+# - Everything after ` ::` is optional. It is the natural-language description
+#   handed to Gemini Vision when the expression matches nothing, so keep it
+#   specific about position, label, and icon.
+# - `{placeholder}` values are filled by the calling script.
+# - Use `||`-free syntax: a key holds exactly ONE expression. For alternative
+#   selectors, chain them with Playwright's own `.or_(...)`.
+#
+# Keep this file free of Python-side locators: scripts must only reference keys.
+# ==========================================================================
+
+# --- Sign in flow ----------------------------------------------------------
+atomicmail_sign_in_link = page.get_by_role("link", name="Sign In") :: "Sign In" link in the Atomic Mail header/navigation, navigates to the login page
+atomicmail_username_input = page.locator("input[name='username'], input[id='username'], input[type='text'], [data-testid='username-input']").first :: username/email input field on the Atomic Mail sign-in form, tries multiple common selectors in order
+atomicmail_login_submit_button = page.locator("button[type='submit'], input[type='submit'], [data-testid='login-submit'], button:has-text('Continue'), button:has-text('Sign In')").first :: submit button on the Atomic Mail username step, tries multiple common selectors
+atomicmail_password_input = page.locator("input[name='password'], input[id='password'], input[type='password'], [data-testid='password-input']").first :: password input field on the Atomic Mail sign-in form, tries multiple common selectors
+atomicmail_sign_in_button = page.locator("button[type='submit'], input[type='submit'], [data-testid='login-sign-in'], button:has-text('Sign In'), button:has-text('Log in')").first :: final "Sign In" / "Log in" button on the Atomic Mail password step
+
+# --- Inbox landing / ChatGPT email navigation ------------------------------
+atomicmail_chatgpt_email_link = page.get_by_role("link", name=re.compile(r"ChatGPT", re.IGNORECASE)) :: first link with name matching "ChatGPT" (case-insensitive) on the Atomic Mail inbox landing page - click to open the ChatGPT verification email
+atomicmail_mailbox_loading_wrapper = page.get_by_test_id("mailbox-loading-wrapper") :: mailbox loading wrapper element (test-id="mailbox-loading-wrapper") that appears during email list loading
+atomicmail_mailbox_navigation = page.get_by_test_id("mailbox-loading-wrapper").get_by_role("navigation") :: navigation element inside the mailbox loading wrapper, indicates inbox is loaded and ready
+
+# --- Inbox navigation ------------------------------------------------------
+atomicmail_reader_back_button = page.get_by_test_id("reader-back-button") :: "Back" button in the Atomic Mail email reader view to return to the inbox (test-id="reader-back-button")
+
+# --- Verification code extraction ------------------------------------------
+atomicmail_verification_code_cell = page.get_by_role("cell").filter(has_text=re.compile(r"\d{6}")) :: table cell in the Atomic Mail email body containing a 6-digit verification code (regex \d{6})
+
+# --- Sign up flow -----------------------------------------------------------
+atomicmail_register_firstname_input = page.get_by_test_id('register-firstname-input') ::
+atomicmail_register_lastname_input = page.get_by_test_id('register-lastname-input') ::
+atomicmail_register_submit_button = page.get_by_role("button", name="Submit") ::
+atomicmail_register_email_input = page.get_by_test_id('register-username-input') ::
+atomicmail_registration_submit = page.get_by_test_id('registration-submit') ::
+atomicmail_field_error_message = page.get_by_test_id('field-error-message') ::
+atomicmail_register_password_input = page.get_by_test_id('register-password-input') ::
+atomicmail_register_confirm_password_input = page.get_by_test_id('register-confirm-password-input') ::
+atomicmail_registration_download_seed = page.get_by_test_id('registration-download-seed') ::
+atomicmail_register_recovery_email_input = page.get_by_test_id('register-recovery-email-input') ::
+atomicmail_register_recovery_email_skip = page.get_by_test_id('register-recovery-email-skip') ::
+atomicmail_welcome_sign_in = page.get_by_test_id('welcome-sign-in') ::

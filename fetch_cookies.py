@@ -1,253 +1,258 @@
-import os
-import sys
+"""Fetch ChatGPT cookies using Atomic Mail for verification codes."""
+
 import json
+import os
 import random
-import time
-import base64
 import re
-import requests
-from secrets import token_bytes
+import sys
+import time
+
+from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
-from dotenv import load_dotenv
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from common.config import ROOT_DIR, get_config, resolve_path
+from common.crypto_utils import encrypt_bytes
+from common.file_utils import clear_png_screenshots
+from common.locator_manager import get_smart_locator
+from common.upload_utils import upload_to_onlyfiles
 
 # =========================
 # CONFIG & PATHS
 # =========================
-load_dotenv()
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
-HEADLESS = True
-TARGET_URL = "https://chatgpt.com/auth/login"
-ATOMIC_MAIL_URL = "https://atomicmail.io/"
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+CONFIG = get_config()
+HEADLESS = CONFIG["browser"]["headless"]
+TARGET_URL = CONFIG["browser"]["target_url"]
+ATOMIC_MAIL_URL = CONFIG["browser"]["atomicmail_url"]
+USER_AGENT = CONFIG["browser"]["user_agent"]
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-ACCOUNTS_FILE = os.path.join(ROOT_DIR, "accounts.txt")
-OUTPUT_DIR = os.path.join(ROOT_DIR, "chatgpt_cookies")
+ACCOUNTS_FILE = resolve_path(CONFIG["paths"]["accounts_file"])
+OUTPUT_DIR = resolve_path(CONFIG["paths"]["output_dir"])
+ERROR_SCREENSHOT = resolve_path(CONFIG["paths"]["error_screenshot"])
 
-# Ensure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(ERROR_SCREENSHOT), exist_ok=True)
+
 
 # =========================
 # HELPER FUNCTIONS
 # =========================
-def custom_random_wait(min_sec=3, max_sec=6):
+def custom_random_wait(min_sec=None, max_sec=None):
+    min_sec = CONFIG["waits"]["min_random_wait"] if min_sec is None else min_sec
+    max_sec = CONFIG["waits"]["max_random_wait"] if max_sec is None else max_sec
     seconds = random.uniform(min_sec, max_sec)
     print(f"[WAIT] Sleeping for {seconds:.2f} seconds...", flush=True)
     time.sleep(seconds)
 
+
+def absolute_wait():
+    custom_random_wait(
+        CONFIG["waits"]["min_absolute_wait"],
+        CONFIG["waits"]["max_absolute_wait"],
+    )
+
+
 def clear_existing_png_screenshots():
-    """Deletes all existing .png files from the OUTPUT_DIR when script starts."""
-    if os.path.exists(OUTPUT_DIR):
-        for file in os.listdir(OUTPUT_DIR):
-            if file.lower().endswith(".png"):
-                file_path = os.path.join(OUTPUT_DIR, file)
-                try:
-                    os.remove(file_path)
-                    print(f"[INFO] Deleted old screenshot: {file_path}", flush=True)
-                except Exception as e:
-                    print(f"[WARNING] Could not delete {file_path}: {e}", flush=True)
+    """Delete old PNG screenshots from the output directory before a run."""
+    clear_png_screenshots(OUTPUT_DIR)
+
 
 def remove_blocked_email_from_accounts_file(target_email):
-    """
-    Removes a blocked email address from accounts.txt file
-    AND deletes its encrypted cookies file if present in OUTPUT_DIR.
-    """
-    # 1. Remove from accounts.txt
+    """Remove a blocked email from accounts.txt and delete its encrypted cookies."""
     if os.path.exists(ACCOUNTS_FILE):
         try:
-            with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            
-            new_lines = [line for line in lines if line.strip() != target_email.strip()]
-            
-            with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
-                
-            print(f"[ACCOUNT BLOCKED] Successfully removed '{target_email}' from {ACCOUNTS_FILE}", flush=True)
-        except Exception as e:
-            print(f"[WARNING] Failed to remove '{target_email}' from {ACCOUNTS_FILE}: {e}", flush=True)
+            with open(ACCOUNTS_FILE, "r", encoding="utf-8") as accounts_file:
+                lines = accounts_file.readlines()
 
-    # 2. Delete encrypted cookie file if exists
+            remaining_lines = [
+                line for line in lines if line.strip() != target_email.strip()
+            ]
+
+            with open(ACCOUNTS_FILE, "w", encoding="utf-8") as accounts_file:
+                accounts_file.writelines(remaining_lines)
+
+            print(
+                f"[ACCOUNT BLOCKED] Removed '{target_email}' from {ACCOUNTS_FILE}",
+                flush=True,
+            )
+        except OSError as error:
+            print(
+                f"[WARNING] Failed to remove '{target_email}' from {ACCOUNTS_FILE}: {error}",
+                flush=True,
+            )
+
     cookie_filename = f"{target_email}_chatgpt_cookies.json.encrypted"
     cookie_filepath = os.path.join(OUTPUT_DIR, cookie_filename)
     if os.path.exists(cookie_filepath):
         try:
             os.remove(cookie_filepath)
-            print(f"[ACCOUNT BLOCKED] Deleted blocked account's encrypted cookie file: {cookie_filepath}", flush=True)
-        except Exception as e:
-            print(f"[WARNING] Could not delete encrypted cookie file {cookie_filepath}: {e}", flush=True)
+            print(
+                f"[ACCOUNT BLOCKED] Deleted encrypted cookie file: {cookie_filepath}",
+                flush=True,
+            )
+        except OSError as error:
+            print(
+                f"[WARNING] Could not delete encrypted cookie file {cookie_filepath}: {error}",
+                flush=True,
+            )
+
 
 def get_all_emails():
     if not os.path.exists(ACCOUNTS_FILE):
         raise FileNotFoundError(f"'{ACCOUNTS_FILE}' file not found.")
-    
+
     emails = []
-    with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-        for line in f:
+    with open(ACCOUNTS_FILE, "r", encoding="utf-8") as accounts_file:
+        for line in accounts_file:
             email = line.strip()
             if email:
                 emails.append(email)
-    
+
     if not emails:
         raise ValueError(f"No valid emails found in '{ACCOUNTS_FILE}'.")
-    
+
     return emails
 
+
 def extract_username_from_email(email):
-    """Extract username from email (part before @)."""
-    return email.split('@')[0]
+    """Return the part of an email address before the @ sign."""
+    return email.split("@", 1)[0]
 
-def upload_to_onlyfiles(screenshot_path):
-    url = "https://api.onlyfiles.com/v1/upload"
 
-    with open(screenshot_path, "rb") as file:
-        response = requests.post(url, files={"file": file}, data={"expire": 172800})
-
-    if response.status_code == 200:
-        res_data = response.json()
-        if res_data.get("status"):
-            direct_url = res_data["data"]["file"]["url"]["full"]
-            print(f"[INFO] DIRECT LINK (Expires in 48 Hours / 172800s): {direct_url}")
-            return direct_url
-        else:
-            error = res_data.get("error", {})
-            print(f"[WARNING] Upload Failed: {error.get('message', 'Unknown error')} "
-                  f"(code: {error.get('code')})")
-            return None
-    else:
-        print(f"[WARNING] Upload Failed: {response.status_code}")
-        return None
-
-def capture_and_upload_screenshot(page, email):
-    """Takes a screenshot of the current page and uploads it."""
+def capture_error_screenshot(page):
+    """Save the current page to error/error_screenshot.png and upload it."""
     if not page:
         return None
+
     try:
-        screenshot_filename = f"{extract_username_from_email(email)}_error.png"
-        screenshot_path = os.path.join(OUTPUT_DIR, screenshot_filename)
-        page.screenshot(path=screenshot_path)
-        print(f"[INFO] Saved error screenshot to: {screenshot_path}", flush=True)
-        return upload_to_onlyfiles(screenshot_path)
-    except Exception as e:
-        print(f"[WARNING] Failed to capture/upload screenshot: {e}", flush=True)
+        os.makedirs(os.path.dirname(ERROR_SCREENSHOT), exist_ok=True)
+        page.screenshot(path=ERROR_SCREENSHOT)
+        print(f"[INFO] Saved error screenshot to: {ERROR_SCREENSHOT}", flush=True)
+        return upload_to_onlyfiles(ERROR_SCREENSHOT, CONFIG)
+    except Exception as error:
+        print(f"[WARNING] Failed to capture or upload error screenshot: {error}", flush=True)
         return None
 
-# =========================
-# ENCRYPTION LOGIC (inline)
-# =========================
-def _derive_key_from_password(password: bytes, salt: bytes) -> bytes:
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=200_000,
-    )
-    return kdf.derive(password)
 
-def _encrypt_bytes(data: bytes, password: str) -> dict:
-    salt = token_bytes(16)
-    nonce = token_bytes(12)
-    key = _derive_key_from_password(password.encode("utf-8"), salt)
-    aesgcm = AESGCM(key)
-    ct = aesgcm.encrypt(nonce, data, None)
-    return {
-        "v": 1,
-        "s": base64.b64encode(salt).decode("ascii"),
-        "n": base64.b64encode(nonce).decode("ascii"),
-        "ct": base64.b64encode(ct).decode("ascii"),
-    }
-
+# =========================
+# ENCRYPTION LOGIC
+# =========================
 def encrypt_and_save_cookies(cookies_data, email, decrypt_key):
     plaintext = json.dumps(cookies_data).encode("utf-8")
-    payload = _encrypt_bytes(plaintext, decrypt_key)
-    
+    payload = encrypt_bytes(
+        plaintext,
+        decrypt_key,
+        CONFIG["encryption"]["iterations"],
+        CONFIG["encryption"]["key_length"],
+        CONFIG["encryption"]["salt_bytes"],
+        CONFIG["encryption"]["nonce_bytes"],
+    )
+
     filename = f"{email}_chatgpt_cookies.json.encrypted"
     target_path = os.path.join(OUTPUT_DIR, filename)
-    
-    with open(target_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, separators=(",", ":"))
-    
-    print(f"[OK] Encrypted cookies successfully saved to: {target_path}", flush=True)
 
-def find_verification_code_in_email(atomic_page):
-    """
-    Click on the first email in the list using xpath //main//li[1]//a[1],
-    then look for a cell containing the verification code text.
-    Uses getByRole('cell', { name: regex }) to find the code.
-    Returns the code or None if not found.
+    with open(target_path, "w", encoding="utf-8") as cookie_file:
+        json.dump(payload, cookie_file, separators=(",", ":"))
+
+    print(f"[OK] Encrypted cookies saved to: {target_path}", flush=True)
+
+
+# =========================
+# ATOMIC MAIL HELPERS
+# =========================
+def navigate_to_chatgpt_email(atomic_page, atomic):
+    """Navigate to the ChatGPT verification email from the Atomic Mail inbox.
+
+    Flow:
+    1. Wait for mailbox to load (mailbox-loading-wrapper with navigation)
+    2. Check if ChatGPT email link is visible (means we're on main inbox page)
+    3. Click the ChatGPT email link to open the verification email
+    4. Wait for email reader to load
     """
     try:
-        print("[INFO] Clicking first email in inbox...", flush=True)
-        try:
-            atomic_page.locator('//main//li[1]//a[1]').click(timeout=5000)
-        except Exception:
-            print("[WARNING] First email locator not found. Pressing Escape and retrying...", flush=True)
-            atomic_page.keyboard.press('Escape')
-            custom_random_wait(1, 2)
-            atomic_page.locator('//main//li[1]//a[1]').click()
-        custom_random_wait(3, 5)
+        print("[INFO] Waiting for mailbox to load...", flush=True)
+        atomic.locator("atomicmail_mailbox_navigation").wait_for(state="visible", timeout=15000)
+        custom_random_wait(2, 3)
 
+        print("[INFO] Checking for ChatGPT email link...", flush=True)
+        chatgpt_link = atomic.locator("atomicmail_chatgpt_email_link")
+        if chatgpt_link.is_visible(timeout=5000):
+            print("[INFO] ChatGPT email link found. Clicking to open verification email...", flush=True)
+            chatgpt_link.click(timeout=5000)
+            custom_random_wait(3, 5)
+            return True
+
+        print("[INFO] ChatGPT email link not visible. May already be in email reader view.", flush=True)
+        return True
+
+    except Exception as error:
+        print(f"[WARNING] Error navigating to ChatGPT email: {error}", flush=True)
+        return False
+
+
+def find_verification_code_in_email(atomic_page, atomic):
+    """Extract the six-digit verification code from the open email."""
+    try:
         print("[INFO] Looking for verification code cell inside email...", flush=True)
-        code_cells = atomic_page.get_by_role('cell').filter(has_text=re.compile(r'\d{6}'))
+        code_cells = atomic.locator("atomicmail_verification_code_cell").raw().filter(has_text=re.compile(r"\d{6}"))
         count = code_cells.count()
-        
-        found_code = None
-        for i in range(count):
+
+        for index in range(count):
             try:
-                cell_text = code_cells.nth(i).text_content()
-                if 'temporary verification code' in cell_text or 'login code' in cell_text or 'temporary code' in cell_text:
-                    print(f"[INFO] Found verification code cell.", flush=True)
-                    code_match = re.search(r'(\d{6})', cell_text)
-                    if code_match:
-                        found_code = code_match.group(1)
-                        print(f"[OK] Extracted verification code: {found_code}", flush=True)
-                        return found_code
-            except:
-                pass
-        
-        if not found_code:
-            print("[WARNING] No verification code cell found in email.", flush=True)
-            return None
+                cell_text = code_cells.nth(index).text_content()
+                if not cell_text:
+                    continue
 
+                lowered_text = cell_text.lower()
+                markers = (
+                    "temporary verification code",
+                    "login code",
+                    "temporary code",
+                )
+                if not any(marker in lowered_text for marker in markers):
+                    continue
+
+                code_match = re.search(r"(\d{6})", cell_text)
+                if code_match:
+                    verification_code = code_match.group(1)
+                    print(f"[OK] Extracted verification code", flush=True)
+                    return verification_code
+            except Exception:
+                continue
+
+        print("[WARNING] No verification code cell found in email.", flush=True)
         return None
-    except Exception as e:
-        print(f"[WARNING] Error while reading email: {e}", flush=True)
+    except Exception as error:
+        print(f"[WARNING] Error while reading email: {error}", flush=True)
         return None
 
-def go_back_to_inbox(atomic_page):
-    """Click the back button to return to inbox."""
+
+def go_back_to_inbox(atomic_page, atomic):
+    """Click the back button to return to the inbox from email reader view."""
     try:
         print("[INFO] Clicking back button to return to inbox...", flush=True)
-        try:
-            atomic_page.get_by_test_id('reader-back-button').click(timeout=5000)
-        except Exception:
-            print("[WARNING] Back button not found. Pressing Escape and retrying...", flush=True)
-            atomic_page.keyboard.press('Escape')
+        back_button = atomic.locator("atomicmail_reader_back_button")
+        if back_button.is_visible(timeout=3000):
+            back_button.click(timeout=5000)
+            custom_random_wait(2, 4)
+        else:
+            print("[INFO] Back button not visible. Pressing Escape...", flush=True)
+            atomic_page.keyboard.press("Escape")
             custom_random_wait(1, 2)
-            atomic_page.get_by_test_id('reader-back-button').click()
-        custom_random_wait(2, 4)
-    except Exception as e:
-        print(f"[WARNING] Error clicking back button: {e}", flush=True)
+    except Exception as error:
+        print(f"[WARNING] Error clicking back button: {error}", flush=True)
+
 
 # =========================
 # MAIN FLOW
 # =========================
 def process_email(email, decrypt_key, pw):
-    """
-    Process a single email: login to ChatGPT, get verification code from Atomic Mail,
-    enter code, save cookies.
-    Returns:
-      - ("SUCCESS", None) on success
-      - ("BLOCKED", None) if account is blocked (no retries wanted)
-      - ("FAILED", Exception) on other errors
-    """
-    print(f"\n{'='*60}", flush=True)
+    """Process one email and return a (status, error) tuple."""
+    print(f"\n{'=' * 60}", flush=True)
     print(f"[INFO] Processing email: {email}", flush=True)
-    print(f"{'='*60}", flush=True)
+    print(f"{'=' * 60}", flush=True)
 
     browser = None
     page = None
@@ -256,24 +261,29 @@ def process_email(email, decrypt_key, pw):
             headless=HEADLESS,
             args=[
                 "--start-maximized",
-                "--disable-blink-features=AutomationControlled"
-            ]
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
 
         context = browser.new_context(
             no_viewport=True,
-            user_agent=USER_AGENT
+            user_agent=USER_AGENT,
         )
 
         # =========================
-        # TAB MONITOR: Auto close unexpected third tabs / ads
+        # TAB MONITOR: close unexpected tabs and ads
         # =========================
         def handle_new_page(new_page):
             def is_allowed(url):
-                return "chatgpt.com" in url or "openai.com" in url or "atomicmail.io" in url or url == "about:blank"
+                return (
+                    "chatgpt.com" in url
+                    or "openai.com" in url
+                    or "atomicmail.io" in url
+                    or url == "about:blank"
+                )
 
             if not is_allowed(new_page.url):
-                print(f"[AUTO-CLOSE] Closing extra/ad tab: {new_page.url}", flush=True)
+                print(f"[AUTO-CLOSE] Closing extra tab: {new_page.url}", flush=True)
                 try:
                     new_page.close()
                 except Exception:
@@ -281,64 +291,64 @@ def process_email(email, decrypt_key, pw):
                 return
 
             def on_framenavigated(frame):
-                if frame == new_page.main_frame:
-                    if not is_allowed(frame.url):
-                        print(f"[AUTO-CLOSE] Extra tab navigated to unallowed URL. Closing: {frame.url}", flush=True)
-                        try:
-                            new_page.close()
-                        except Exception:
-                            pass
+                if frame == new_page.main_frame and not is_allowed(frame.url):
+                    print(
+                        f"[AUTO-CLOSE] Extra tab navigated to an unallowed URL: {frame.url}",
+                        flush=True,
+                    )
+                    try:
+                        new_page.close()
+                    except Exception:
+                        pass
 
             new_page.on("framenavigated", on_framenavigated)
 
         context.on("page", handle_new_page)
 
         # =========================
-        # STEP 1: Login to ChatGPT
+        # STEP 1: Log in to ChatGPT
         # =========================
         page = context.new_page()
+        chatgpt = get_smart_locator(page, "chatgpt", CONFIG)
 
         print(f"[STEP] Navigating to URL: {TARGET_URL}...", flush=True)
         page.goto(TARGET_URL, wait_until="domcontentloaded")
         print(f"[OK] {TARGET_URL} opened completely.", flush=True)
-        custom_random_wait(6, 12)
+        absolute_wait()
 
-        print("[STEP] Checking if email field is already visible...", flush=True)
-        email_field = page.get_by_role('textbox', name='Email address')
+        print("[STEP] Checking if the email field is already visible...", flush=True)
+        email_field = chatgpt.locator("chatgpt_email_input")
         if email_field.is_visible():
             print("[INFO] Email field already visible. Skipping login button click.", flush=True)
         else:
-            print("[STEP] Clicking Login Button...", flush=True)
-            login_btn = page.get_by_test_id('login-button')
-            if not login_btn.is_visible():
-                login_btn = page.get_by_label('Chat history').get_by_role('button', name='Log in')
-            
-            login_btn.click()
-            custom_random_wait(6, 12)
+            print("[STEP] Clicking login button...", flush=True)
+            chatgpt.locator("chatgpt_login_button").click()
+            absolute_wait()
 
         print("[STEP] Entering email address...", flush=True)
-        page.get_by_role('textbox', name='Email address').fill(email)
-        custom_random_wait(6, 12)
+        chatgpt.locator("chatgpt_email_input").fill(email)
+        absolute_wait()
 
-        print("[STEP] Clicking Continue...", flush=True)
-        page.get_by_role('button', name='Continue', exact=True).click()
-        custom_random_wait(6, 12)
+        print("[STEP] Clicking continue...", flush=True)
+        chatgpt.locator("chatgpt_continue_button").click()
+        absolute_wait()
 
         # =========================
-        # STEP 2: Open Atomic Mail in new tab and login
+        # STEP 2: Open Atomic Mail and log in
         # =========================
-        print("[STEP] Opening Atomic Mail in new tab...", flush=True)
+        print("[STEP] Opening Atomic Mail in a new tab...", flush=True)
         atomic_page = context.new_page()
+        atomic = get_smart_locator(atomic_page, "atomicmail", CONFIG)
         atomic_page.goto(ATOMIC_MAIL_URL, wait_until="domcontentloaded")
         print(f"[OK] {ATOMIC_MAIL_URL} opened completely.", flush=True)
-        custom_random_wait(6, 12)
+        absolute_wait()
 
-        print("[STEP] Clicking Sign In link...", flush=True)
-        atomic_page.get_by_role('link', name='Sign In').click()
-        custom_random_wait(6, 12)
+        print("[STEP] Clicking sign in link...", flush=True)
+        atomic.locator("atomicmail_sign_in_link").click()
+        absolute_wait()
 
         print("[STEP] Waiting for username field to be ready...", flush=True)
-        username_input = atomic_page.locator("input[name='username'], input[id='username'], input[type='text'], [data-testid='username-input']").first
+        username_input = atomic.locator("atomicmail_username_input")
         username_input.wait_for(state="visible", timeout=10000)
         custom_random_wait(1, 2)
 
@@ -348,110 +358,140 @@ def process_email(email, decrypt_key, pw):
         custom_random_wait(2, 4)
 
         print("[STEP] Clicking login submit...", flush=True)
-        submit_btn = atomic_page.locator("button[type='submit'], input[type='submit'], [data-testid='login-submit'], button:has-text('Continue'), button:has-text('Sign In')").first
-        submit_btn.wait_for(state="visible", timeout=5000)
-        submit_btn.click()
+        submit_button = atomic.locator("atomicmail_login_submit_button")
+        submit_button.wait_for(state="visible", timeout=5000)
+        submit_button.click()
         custom_random_wait(2, 4)
 
         print("[STEP] Entering password...", flush=True)
-        password_input = atomic_page.locator("input[name='password'], input[id='password'], input[type='password'], [data-testid='password-input']").first
+        password_input = atomic.locator("atomicmail_password_input")
         password_input.wait_for(state="visible", timeout=10000)
         password_input.fill(decrypt_key)
         custom_random_wait(2, 4)
 
         print("[STEP] Clicking sign in button...", flush=True)
-        sign_in_btn = atomic_page.locator("button[type='submit'], input[type='submit'], [data-testid='login-sign-in'], button:has-text('Sign In'), button:has-text('Log in')").first
-        sign_in_btn.wait_for(state="visible", timeout=5000)
-        sign_in_btn.click()
+        sign_in_button = atomic.locator("atomicmail_sign_in_button")
+        sign_in_button.wait_for(state="visible", timeout=5000)
+        sign_in_button.click()
         custom_random_wait(5, 8)
 
         # =========================
-        # STEP 3: Find the ChatGPT verification code email with retry logic
+        # STEP 3: Find the ChatGPT verification code email
         # =========================
         print("[STEP] Looking for ChatGPT verification code email...", flush=True)
         verification_code = None
-        max_outer_retries = 5
+        max_outer_retries = CONFIG["retry"]["max_outer_retries"]
+
+        # First, navigate to the ChatGPT email from the inbox
+        if not navigate_to_chatgpt_email(atomic_page, atomic):
+            print("[ERROR] Failed to navigate to ChatGPT email.", flush=True)
+            capture_error_screenshot(page)
+            return "FAILED", None
 
         for outer_attempt in range(max_outer_retries):
-            print(f"\n[INFO] Outer retry set {outer_attempt + 1}/{max_outer_retries}", flush=True)
-            
-            max_inner_retries = 5
+            print(
+                f"\n[INFO] Outer retry set {outer_attempt + 1}/{max_outer_retries}",
+                flush=True,
+            )
+
+            max_inner_retries = CONFIG["retry"]["max_inner_retries"]
             for inner_attempt in range(max_inner_retries):
-                print(f"[INFO] Inner retry {inner_attempt + 1}/{max_inner_retries} checking for verification email...", flush=True)
-                
-                verification_code = find_verification_code_in_email(atomic_page)
+                print(
+                    f"[INFO] Inner retry {inner_attempt + 1}/{max_inner_retries} "
+                    "checking for verification email...",
+                    flush=True,
+                )
+
+                verification_code = find_verification_code_in_email(atomic_page, atomic)
                 if verification_code:
                     break
-                
-                go_back_to_inbox(atomic_page)
-                atomic_page.reload(wait_until="domcontentloaded")
+
+                go_back_to_inbox(atomic_page, atomic)
+                # After going back, navigate to ChatGPT email again
+                if not navigate_to_chatgpt_email(atomic_page, atomic):
+                    print("[WARNING] Failed to re-navigate to ChatGPT email.", flush=True)
                 custom_random_wait(5, 8)
-            
+
             if verification_code:
                 break
-            
-            print("[STEP] Code not found. Switching to ChatGPT page to click 'Resend email'...", flush=True)
+
+            print(
+                "[STEP] Code not found. Switching to ChatGPT to click 'Resend email'...",
+                flush=True,
+            )
             page.bring_to_front()
             custom_random_wait(2, 4)
-            
+
             print("[STEP] Clicking 'Resend email' button...", flush=True)
             try:
-                page.get_by_role('button', name='Resend email').click(timeout=5000)
-            except Exception:
-                print("[WARNING] 'Resend email' button by role not found. Trying CSS selector fallback...", flush=True)
-                page.locator("button[value='resend']").click()
+                chatgpt.locator("chatgpt_resend_email_button").click(timeout=5000)
+            except Exception as error:
+                print(f"[WARNING] Could not click 'Resend email': {error}", flush=True)
             custom_random_wait(3, 5)
-            
+
             print("[STEP] Switching back to Atomic Mail...", flush=True)
             atomic_page.bring_to_front()
             custom_random_wait(2, 4)
+            # After resend, navigate to ChatGPT email again
+            if not navigate_to_chatgpt_email(atomic_page, atomic):
+                print("[WARNING] Failed to re-navigate to ChatGPT email after resend.", flush=True)
 
         if verification_code is None:
-            print("[ERROR] Could not find verification code email after all retries.", flush=True)
-            if page:
-                capture_and_upload_screenshot(page, email)
+            print(
+                "[ERROR] Could not find verification code email after all retries.",
+                flush=True,
+            )
+            capture_error_screenshot(page)
             return "FAILED", None
 
         # =========================
-        # STEP 4: Go back to ChatGPT page and enter the code
+        # STEP 4: Enter the verification code
         # =========================
-        print("[STEP] Switching back to ChatGPT page to enter verification code...", flush=True)
+        print("[STEP] Switching back to ChatGPT to enter verification code...", flush=True)
         page.bring_to_front()
         custom_random_wait(2, 4)
 
         print("[STEP] Typing verification code...", flush=True)
         custom_random_wait(1, 2)
-        page.keyboard.press('Tab')
+        page.keyboard.press("Tab")
         custom_random_wait(1, 2)
-        code_field = page.locator("xpath=/html[1]/body[1]/div[1]/div[1]/fieldset[1]/form[1]/div[1]/div[1]/div[1]/div[1]/label[1]/div[1]")
+
+        code_field = chatgpt.locator("chatgpt_verification_code_input")
         code_field.wait_for(state="visible", timeout=5000)
         code_field.click()
-        page.keyboard.type(verification_code, delay=50)
+        page.keyboard.type(
+            verification_code,
+            delay=CONFIG["browser"]["typing_delay_ms"],
+        )
         custom_random_wait(1, 2)
 
-        print("[STEP] Clicking Continue button...", flush=True)
-        page.get_by_role('button', name='Continue').click()
-        
-        custom_random_wait(6, 12)
+        print("[STEP] Clicking continue button...", flush=True)
+        chatgpt.locator("chatgpt_continue_button_after_code").click()
+        absolute_wait()
 
-        # Check if account is blocked by looking for 'error_code:' locator
+        # Check whether the account is blocked.
         print("[STEP] Checking for account block error...", flush=True)
         try:
-            error_locator = page.get_by_text('error_code:')
-            if error_locator.is_visible(timeout=3000):
-                print(f"[ERROR] Account is blocked: {email}. Removing from accounts.txt and deleting cookies...", flush=True)
+            # Use wait_for instead of is_visible to trigger Gemini Vision if element exists
+            blocked_locator = chatgpt.locator("chatgpt_account_block_error")
+            if blocked_locator.wait_for(state="visible", timeout=5000):
+                print(
+                    f"[ERROR] Account is blocked: {email}. Removing it from accounts and cookies...",
+                    flush=True,
+                )
                 remove_blocked_email_from_accounts_file(email)
                 return "BLOCKED", None
         except Exception:
+            # If wait_for times out, account is not blocked (or Gemini couldn't find it)
             pass
 
-        # Check if existing workspace "Open" button appears (Safe Timeout)
+        # Open an existing workspace when the button is present.
         print("[STEP] Checking for existing workspace 'Open' button...", flush=True)
         try:
-            workspace_btn = page.get_by_test_id('existing-workspace-row').get_by_role('button', name='Open')
-            if workspace_btn.is_visible(timeout=3000):
-                print("[INFO] Existing workspace row found. Clicking 'Open' button...", flush=True)
-                workspace_btn.click()
+            workspace_button = chatgpt.locator("chatgpt_existing_workspace_open_button")
+            if workspace_button.is_visible(timeout=3000):
+                print("[INFO] Existing workspace found. Clicking 'Open'...", flush=True)
+                workspace_button.click()
                 custom_random_wait(5, 8)
         except Exception:
             print("[INFO] Workspace button not present or skipped.", flush=True)
@@ -468,109 +508,122 @@ def process_email(email, decrypt_key, pw):
         # =========================
         print("[STEP] Verifying login success...", flush=True)
         try:
-            profile_btn = page.get_by_role('button').filter(has_text='Free').or_(
-                page.get_by_role('button', name=re.compile(r'.*Free, open'))
-            ).or_(
-                page.get_by_role('button', name='Open profile menu')
-            ).or_(
-                page.locator("[data-testid='profile-button']")
+            chatgpt.locator("chatgpt_profile_button").wait_for(
+                state="visible",
+                timeout=15000,
             )
-            profile_btn.first.wait_for(state="visible", timeout=15000)
-            print(f"[OK] Login successful!", flush=True)
+            print("[OK] Login successful!", flush=True)
         except Exception:
-            print("[ERROR] Login failed or took too long. Profile button not found.", flush=True)
-            if page:
-                capture_and_upload_screenshot(page, email)
+            print(
+                "[ERROR] Login failed or took too long. Profile button not found.",
+                flush=True,
+            )
+            capture_error_screenshot(page)
             return "FAILED", None
 
         print("[STEP] Harvesting context cookies...", flush=True)
         cookies = context.cookies()
-        
+
         if cookies:
             encrypt_and_save_cookies(cookies, email, decrypt_key)
         else:
             print("[WARNING] No cookies captured. Check if login was blocked.", flush=True)
-            if page:
-                capture_and_upload_screenshot(page, email)
+            capture_error_screenshot(page)
 
         return "SUCCESS", None
 
-    except Exception as e:
-        print(f"[ERROR] Workflow failed for {email}: {e}", flush=True)
-        if page:
-            capture_and_upload_screenshot(page, email)
-        return "FAILED", e
+    except Exception as error:
+        print(f"[ERROR] Workflow failed for {email}: {error}", flush=True)
+        capture_error_screenshot(page)
+        return "FAILED", error
 
     finally:
         if browser:
             try:
                 browser.close()
                 print(f"[INFO] Browser closed for {email}.", flush=True)
-            except:
+            except Exception:
                 pass
+
 
 def run():
     print("[START] Script started", flush=True)
-    
-    # Delete old .png screenshots from chatgpt_cookies folder before running
+
     clear_existing_png_screenshots()
-    
+
     try:
         emails = get_all_emails()
         print(f"[INFO] Found {len(emails)} email(s) to process.", flush=True)
-    except Exception as e:
-        print(f"[ERROR] Credential error: {e}", flush=True)
+    except Exception as error:
+        print(f"[ERROR] Credential error: {error}", flush=True)
         sys.exit(1)
-        
+
     decrypt_key = os.getenv("DECRYPT_KEY")
     if not decrypt_key:
-        print("[ERROR] DECRYPT_KEY is missing in environment/.env", flush=True)
+        print("[ERROR] DECRYPT_KEY is missing in environment or .env", flush=True)
         sys.exit(1)
 
     stealth = Stealth()
-    pw_cm = stealth.use_sync(sync_playwright())
-    pw = pw_cm.__enter__()
+    playwright_manager = stealth.use_sync(sync_playwright())
+    pw = playwright_manager.__enter__()
 
     try:
+        max_email_retries = CONFIG["retry"]["max_email_retries"]
         for email in emails:
             success = False
-            max_retries = 5
             status = "FAILED"
-            
-            for attempt in range(1, max_retries + 1):
-                print(f"\n[INFO] Attempt {attempt}/{max_retries} for email: {email}", flush=True)
-                
-                status, err = process_email(email, decrypt_key, pw)
-                
+
+            for attempt in range(1, max_email_retries + 1):
+                print(
+                    f"\n[INFO] Attempt {attempt}/{max_email_retries} for email: {email}",
+                    flush=True,
+                )
+
+                status, _error = process_email(email, decrypt_key, pw)
+
                 if status == "SUCCESS":
                     print(f"[OK] Successfully processed email: {email}", flush=True)
                     success = True
                     break
-                elif status == "BLOCKED":
-                    print(f"[SKIP] Account is blocked for email: {email}. Skipping all remaining retries.", flush=True)
-                    success = True  # Treat blocked as handled so it doesn't trigger final exit
+
+                if status == "BLOCKED":
+                    print(
+                        f"[SKIP] Account is blocked for email: {email}. Skipping retries.",
+                        flush=True,
+                    )
+                    success = True
                     break
-                else:
-                    print(f"[WARNING] Attempt {attempt}/{max_retries} failed for email: {email}", flush=True)
-                    if attempt < max_retries:
-                        print(f"[INFO] Retrying email: {email} with fresh browser session...", flush=True)
-                        custom_random_wait(3, 5)
-            
-            # Agar 5 attempts ke baad bhi success ya block nahi hua, matlab completely fail ho gaya
+
+                print(
+                    f"[WARNING] Attempt {attempt}/{max_email_retries} failed for email: {email}",
+                    flush=True,
+                )
+                if attempt < max_email_retries:
+                    print(
+                        f"[INFO] Retrying email: {email} with a fresh browser session...",
+                        flush=True,
+                    )
+                    custom_random_wait(3, 5)
+
             if not success and status != "BLOCKED":
-                print(f"[ERROR] All {max_retries} attempts failed for email: {email}. Exiting program with sys.exit(1).", flush=True)
+                print(
+                    f"[ERROR] All {max_email_retries} attempts failed for email: {email}. "
+                    "Exiting with failure.",
+                    flush=True,
+                )
                 sys.exit(1)
 
-    except Exception as e:
-        print(f"[ERROR] Unexpected error: {e}", flush=True)
+    except Exception as error:
+        print(f"[ERROR] Unexpected error: {error}", flush=True)
         sys.exit(1)
     finally:
         try:
-            pw_cm.__exit__(None, None, None)
-        except:
+            playwright_manager.__exit__(None, None, None)
+        except Exception:
             pass
 
     print("[DONE] Process terminated cleanly.", flush=True)
+
 
 if __name__ == "__main__":
     run()
