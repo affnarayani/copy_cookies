@@ -1,1 +1,10 @@
-{}
+{
+  "chatgpt.chatgpt_account_block_error": {
+    "platform": "chatgpt",
+    "locator_name": "chatgpt_account_block_error",
+    "broken_locator": "page.get_by_role(\"button\", name=\"Try again\")",
+    "suggested_locator": "page.get_by_role(\"button\", name=\"Continue\")",
+    "timestamp": "2026-11-16T10:51:46.851429Z",
+    "reason": "Gemini Vision fallback succeeded where standard locator failed"
+  }
+}
