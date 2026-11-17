@@ -71,6 +71,15 @@ def _prepare_extension_dir():
         print(f"[INFO] Extracted extension to: {_EXTRACTED_EXTENSION_DIR}", flush=True)
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
+        # List all files in extension root
+        import os
+        for root, dirs, files in os.walk(ext_root):
+            level = root.replace(ext_root, '').count(os.sep)
+            indent = ' ' * 2 * level
+            print(f"{indent}{os.path.basename(root)}/", flush=True)
+            subindent = ' ' * 2 * (level + 1)
+            for file in files:
+                print(f"{subindent}{file}", flush=True)
         # Read manifest for extension ID
         if os.path.exists(manifest):
             with open(manifest, "r") as f:
@@ -78,6 +87,7 @@ def _prepare_extension_dir():
                 manifest_data = json.load(f)
                 print(f"[INFO] Extension name: {manifest_data.get('name', 'unknown')}", flush=True)
                 print(f"[INFO] Extension version: {manifest_data.get('version', 'unknown')}", flush=True)
+                print(f"[INFO] Extension manifest keys: {list(manifest_data.keys())}", flush=True)
         _EXTRACTED_EXTENSION_DIR = ext_root
     return _EXTRACTED_EXTENSION_DIR
 
@@ -302,6 +312,7 @@ def create_one_account(pw, ext_dir):
     page = None
     chatgpt_page = None
     try:
+        print(f"[DEBUG] Loading extension from: {ext_dir}", flush=True)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=HEADLESS,
@@ -354,10 +365,34 @@ def create_one_account(pw, ext_dir):
                     });
                 }""")
                 print(f"[DEBUG] Loaded extensions: {extensions}", flush=True)
+                # Try to enable if disabled
+                for ext in extensions:
+                    if ext.get('name') and 'nopecha' in ext['name'].lower() and not ext.get('enabled'):
+                        print(f"[DEBUG] Enabling NopeCHA extension: {ext['id']}", flush=True)
+                        page.evaluate(f"""() => {{
+                            const item = document.querySelector('extensions-item[id="{ext['id']}"]');
+                            if (item && item.shadowRoot) {{
+                                const toggle = item.shadowRoot.querySelector('#enable-toggle');
+                                if (toggle && !toggle.checked) {{
+                                    toggle.click();
+                                }}
+                            }}
+                        }}""")
+                        page.wait_for_timeout(2000)
             except Exception as e:
                 print(f"[DEBUG] Could not parse extensions: {e}", flush=True)
         except Exception as e:
             print(f"[DEBUG] Extensions page check failed: {e}", flush=True)
+        
+        # Try to set NopeCHA API key via extension storage
+        nopecha_api_key = os.getenv("NOPECHA_API_KEY")
+        if nopecha_api_key:
+            print("[DEBUG] Setting NopeCHA API key...", flush=True)
+            try:
+                # Try to access extension's background page or storage
+                page.goto("chrome-extension://invalid/", wait_until="domcontentloaded", timeout=5000)
+            except Exception as e:
+                print(f"[DEBUG] Extension storage access: {e}", flush=True)
         
         # Go to a blank page first to let extension initialize
         page.goto("about:blank", wait_until="domcontentloaded")
