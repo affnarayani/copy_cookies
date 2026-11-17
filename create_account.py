@@ -298,74 +298,6 @@ def fetch_verification_code(atomic_page, atomic, config):
     return code
 
 
-def _get_extension_id(ext_dir: str) -> str:
-    """Compute extension ID from manifest's public key."""
-    manifest_path = os.path.join(ext_dir, "manifest.json")
-    with open(manifest_path, "r") as f:
-        import json
-        manifest = json.load(f)
-    key = manifest.get("key")
-    if not key:
-        raise ValueError("Extension manifest missing 'key' field")
-    import hashlib
-    import base64
-    key_bytes = base64.b64decode(key)
-    hash_digest = hashlib.sha256(key_bytes).digest()
-    extension_id = base64.b32encode(hash_digest[:16]).decode().lower().rstrip('=')
-    return extension_id
-
-
-def _install_extension_to_profile(user_data_dir: str, ext_dir: str):
-    """Install extension into user data directory profile."""
-    extension_id = _get_extension_id(ext_dir)
-    version = "0.6.1"
-    
-    ext_target_dir = os.path.join(user_data_dir, "Extensions", extension_id, version)
-    os.makedirs(ext_target_dir, exist_ok=True)
-    
-    import shutil
-    for item in os.listdir(ext_dir):
-        src = os.path.join(ext_dir, item)
-        dst = os.path.join(ext_target_dir, item)
-        if os.path.isdir(src):
-            shutil.copytree(src, dst, dirs_exist_ok=True)
-        else:
-            shutil.copy2(src, dst)
-    
-    prefs_path = os.path.join(user_data_dir, "Preferences")
-    prefs = {}
-    if os.path.exists(prefs_path):
-        with open(prefs_path, "r") as f:
-            prefs = json.load(f)
-    
-    if "extensions" not in prefs:
-        prefs["extensions"] = {}
-    if "settings" not in prefs["extensions"]:
-        prefs["extensions"]["settings"] = {}
-    
-    with open(os.path.join(ext_dir, "manifest.json"), "r") as f:
-        manifest_content = f.read()
-    
-    prefs["extensions"]["settings"][extension_id] = {
-        "active_permissions": ["activeTab", "scripting", "storage", "webNavigation"],
-        "disable_reasons": 0,
-        "enable_reasons": 1,
-        "install_time": str(int(time.time() * 1000000)),
-        "location": 1,
-        "manifest": json.loads(manifest_content),
-        "path": ext_target_dir,
-        "state": 1,
-        "was_installed_by_default": False,
-        "was_installed_by_oem": False
-    }
-    
-    with open(prefs_path, "w") as f:
-        json.dump(prefs, f)
-    
-    print(f"[INFO] Installed extension {extension_id} to profile", flush=True)
-    return extension_id
-
-
 def create_one_account(pw, ext_dir):
     firstname, surname = generate_names()
     firstname_display = firstname.capitalize()
@@ -379,9 +311,6 @@ def create_one_account(pw, ext_dir):
     page = None
     chatgpt_page = None
     try:
-        # Install extension to profile first
-        _install_extension_to_profile(user_data_dir, ext_dir)
-        
         print(f"[DEBUG] Launching browser with --load-extension", flush=True)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
@@ -417,56 +346,23 @@ def create_one_account(pw, ext_dir):
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
         
-        # Debug: Check if extension is loaded by visiting extensions page
-        print("[DEBUG] Checking extension status...", flush=True)
-        try:
-            page.goto("chrome://extensions/", wait_until="domcontentloaded", timeout=10000)
-            page.wait_for_timeout(3000)
-            print("[DEBUG] Extensions page loaded", flush=True)
-            # Try to get extension info from page
-            try:
-                extensions = page.evaluate("""() => {
-                    const items = document.querySelectorAll('extensions-item');
-                    return Array.from(items).map(item => {
-                        const name = item.shadowRoot?.querySelector('#name')?.textContent;
-                        const id = item.getAttribute('id');
-                        const enabled = item.shadowRoot?.querySelector('#enable-toggle')?.checked;
-                        return {name, id, enabled};
-                    });
-                }""")
-                print(f"[DEBUG] Loaded extensions: {extensions}", flush=True)
-                # Try to enable if disabled
-                for ext in extensions:
-                    if ext.get('name') and 'nopecha' in ext['name'].lower() and not ext.get('enabled'):
-                        print(f"[DEBUG] Enabling NopeCHA extension: {ext['id']}", flush=True)
-                        page.evaluate(f"""() => {{
-                            const item = document.querySelector('extensions-item[id="{ext['id']}"]');
-                            if (item && item.shadowRoot) {{
-                                const toggle = item.shadowRoot.querySelector('#enable-toggle');
-                                if (toggle && !toggle.checked) {{
-                                    toggle.click();
-                                }}
-                            }}
-                        }}""")
-                        page.wait_for_timeout(2000)
-            except Exception as e:
-                print(f"[DEBUG] Could not parse extensions: {e}", flush=True)
-        except Exception as e:
-            print(f"[DEBUG] Extensions page check failed: {e}", flush=True)
-        
-        # Try to set NopeCHA API key via extension storage
-        nopecha_api_key = os.getenv("NOPECHA_API_KEY")
-        if nopecha_api_key:
-            print("[DEBUG] Setting NopeCHA API key...", flush=True)
-            try:
-                # Try to access extension's background page or storage
-                page.goto("chrome-extension://invalid/", wait_until="domcontentloaded", timeout=5000)
-            except Exception as e:
-                print(f"[DEBUG] Extension storage access: {e}", flush=True)
-        
-        # Go to a blank page first to let extension initialize
-        page.goto("about:blank", wait_until="domcontentloaded")
+        # Debug: Check if extension content script is active
+        print("[DEBUG] Checking for NopeCHA content script...", flush=True)
+        page.goto("https://atomicmail.io/app/auth/sign-up", wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
+        try:
+            # Check if NopeCHA injected any elements or set any globals
+            nopecha_active = page.evaluate("""() => {
+                return {
+                    hasNopechaGlobal: typeof window.nopecha !== 'undefined',
+                    hasNopechaElement: document.querySelector('[data-nopecha]') !== null,
+                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(s => s.includes('nopecha')),
+                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(s => s.includes('nopecha'))
+                };
+            }""")
+            print(f"[DEBUG] NopeCHA detection: {nopecha_active}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] NopeCHA detection failed: {e}", flush=True)
         
         atomic = get_smart_locator(page, "atomicmail", CONFIG)
 
