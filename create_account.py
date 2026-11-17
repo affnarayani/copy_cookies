@@ -450,6 +450,7 @@ def run():
             created.append(email)
         else:
             print("[ERROR] Failed to create account", flush=True)
+            sys.exit(1)
     except Exception as error:
         print(f"[ERROR] Unexpected error: {error}", flush=True)
         sys.exit(1)
