@@ -298,6 +298,76 @@ def fetch_verification_code(atomic_page, atomic, config):
     return code
 
 
+def _get_extension_id(ext_dir: str) -> str:
+    """Compute extension ID from manifest's public key."""
+    manifest_path = os.path.join(ext_dir, "manifest.json")
+    with open(manifest_path, "r") as f:
+        import json
+        manifest = json.load(f)
+    key = manifest.get("key")
+    if not key:
+        raise ValueError("Extension manifest missing 'key' field")
+    import hashlib
+    import base64
+    key_bytes = base64.b64decode(key)
+    hash_digest = hashlib.sha256(key_bytes).digest()
+    extension_id = base64.b32encode(hash_digest[:16]).decode().lower()
+    return extension_id
+
+
+def _install_extension_to_profile(user_data_dir: str, ext_dir: str):
+    """Install extension into user data directory profile."""
+    extension_id = _get_extension_id(ext_dir)
+    version = "0.6.1"
+    
+    ext_target_dir = os.path.join(user_data_dir, "Extensions", extension_id, version)
+    os.makedirs(ext_target_dir, exist_ok=True)
+    
+    import shutil
+    for item in os.listdir(ext_dir):
+        src = os.path.join(ext_dir, item)
+        dst = os.path.join(ext_target_dir, item)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+    
+    prefs_path = os.path.join(user_data_dir, "Preferences")
+    prefs = {}
+    if os.path.exists(prefs_path):
+        with open(prefs_path, "r") as f:
+            import json
+            prefs = json.load(f)
+    
+    if "extensions" not in prefs:
+        prefs["extensions"] = {}
+    if "settings" not in prefs["extensions"]:
+        prefs["extensions"]["settings"] = {}
+    
+    with open(os.path.join(ext_dir, "manifest.json"), "r") as f:
+        manifest_content = f.read()
+    
+    prefs["extensions"]["settings"][extension_id] = {
+        "active_permissions": ["activeTab", "scripting", "storage", "webNavigation"],
+        "disable_reasons": 0,
+        "enable_reasons": 1,
+        "install_time": str(int(time.time() * 1000000)),
+        "location": 1,
+        "manifest": json.loads(manifest_content),
+        "path": ext_target_dir,
+        "state": 1,
+        "was_installed_by_default": False,
+        "was_installed_by_oem": False
+    }
+    
+    with open(prefs_path, "w") as f:
+        import json
+        json.dump(prefs, f)
+    
+    print(f"[INFO] Installed extension {extension_id} to profile", flush=True)
+    return extension_id
+
+
 def create_one_account(pw, ext_dir):
     firstname, surname = generate_names()
     firstname_display = firstname.capitalize()
@@ -311,15 +381,16 @@ def create_one_account(pw, ext_dir):
     page = None
     chatgpt_page = None
     try:
-        print(f"[DEBUG] Loading extension from: {ext_dir}", flush=True)
+        # Install extension to profile first
+        _install_extension_to_profile(user_data_dir, ext_dir)
+        
+        print(f"[DEBUG] Launching browser with installed extension", flush=True)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=HEADLESS,
             no_viewport=True,
             user_agent=USER_AGENT,
             args=[
-                f"--load-extension={ext_dir}",
-                f"--disable-extensions-except={ext_dir}",
                 "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-features=site-per-process,IsolateOrigins",
