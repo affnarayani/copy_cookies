@@ -64,7 +64,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y tigervnc-standalone-server tigervnc-common x11-xserver-utils fluxbox
-        vncserver :99 -geometry 1920x1080 -depth 24 -SecurityTypes None -localhost no
+        vncserver :99 -geometry 1920x1080 -depth 24 -SecurityTypes None -localhost no --I-KNOW-THIS-IS-INSECURE
         export DISPLAY=:99
         sleep 3
         xdpyinfo -display :99
