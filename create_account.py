@@ -30,6 +30,7 @@ from playwright_stealth import Stealth
 from common.config import ROOT_DIR, get_config, resolve_path
 from common.file_utils import clear_png_screenshots
 from common.locator_manager import get_smart_locator
+from common.upload_utils import upload_to_onlyfiles
 
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
@@ -131,8 +132,10 @@ def capture_error_screenshot(page):
         os.makedirs(os.path.dirname(ERROR_SCREENSHOT), exist_ok=True)
         page.screenshot(path=ERROR_SCREENSHOT)
         print(f"[INFO] Saved error screenshot to: {ERROR_SCREENSHOT}", flush=True)
+        return upload_to_onlyfiles(ERROR_SCREENSHOT, CONFIG)
     except Exception as error:
-        print(f"[WARNING] Failed to capture error screenshot: {error}", flush=True)
+        print(f"[WARNING] Failed to capture or upload error screenshot: {error}", flush=True)
+        return None
 
 
 def load_existing_accounts():

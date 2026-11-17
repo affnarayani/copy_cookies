@@ -1,11 +1,9 @@
-name: 1B. Fetch Cookies
+name: 2A. Fetch Cookies
 
-on: 
-  workflow_dispatch: 
-  workflow_run:
-    workflows: ["1A. Create Account"]
-    types:
-      - completed
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -13,7 +11,6 @@ env:
 jobs:
   fetch-cookies:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     
     permissions:
       contents: write
