@@ -336,7 +336,6 @@ def _install_extension_to_profile(user_data_dir: str, ext_dir: str):
     prefs = {}
     if os.path.exists(prefs_path):
         with open(prefs_path, "r") as f:
-            import json
             prefs = json.load(f)
     
     if "extensions" not in prefs:
@@ -361,7 +360,6 @@ def _install_extension_to_profile(user_data_dir: str, ext_dir: str):
     }
     
     with open(prefs_path, "w") as f:
-        import json
         json.dump(prefs, f)
     
     print(f"[INFO] Installed extension {extension_id} to profile", flush=True)
