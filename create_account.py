@@ -311,7 +311,7 @@ def _get_extension_id(ext_dir: str) -> str:
     import base64
     key_bytes = base64.b64decode(key)
     hash_digest = hashlib.sha256(key_bytes).digest()
-    extension_id = base64.b32encode(hash_digest[:16]).decode().lower()
+    extension_id = base64.b32encode(hash_digest[:16]).decode().lower().rstrip('=')
     return extension_id
 
 
@@ -382,13 +382,15 @@ def create_one_account(pw, ext_dir):
         # Install extension to profile first
         _install_extension_to_profile(user_data_dir, ext_dir)
         
-        print(f"[DEBUG] Launching browser with installed extension", flush=True)
+        print(f"[DEBUG] Launching browser with --load-extension", flush=True)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=HEADLESS,
             no_viewport=True,
             user_agent=USER_AGENT,
             args=[
+                f"--load-extension={ext_dir}",
+                f"--disable-extensions-except={ext_dir}",
                 "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-features=site-per-process,IsolateOrigins",
