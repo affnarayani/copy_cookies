@@ -72,7 +72,6 @@ def _prepare_extension_dir():
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
         # List all files in extension root
-        import os
         for root, dirs, files in os.walk(ext_root):
             level = root.replace(ext_root, '').count(os.sep)
             indent = ' ' * 2 * level
