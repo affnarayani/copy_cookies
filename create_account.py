@@ -71,6 +71,13 @@ def _prepare_extension_dir():
         print(f"[INFO] Extracted extension to: {_EXTRACTED_EXTENSION_DIR}", flush=True)
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
+        # Read manifest for extension ID
+        if os.path.exists(manifest):
+            with open(manifest, "r") as f:
+                import json
+                manifest_data = json.load(f)
+                print(f"[INFO] Extension name: {manifest_data.get('name', 'unknown')}", flush=True)
+                print(f"[INFO] Extension version: {manifest_data.get('version', 'unknown')}", flush=True)
         _EXTRACTED_EXTENSION_DIR = ext_root
     return _EXTRACTED_EXTENSION_DIR
 
@@ -328,6 +335,34 @@ def create_one_account(pw, ext_dir):
 
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
+        
+        # Debug: Check if extension is loaded by visiting extensions page
+        print("[DEBUG] Checking extension status...", flush=True)
+        try:
+            page.goto("chrome://extensions/", wait_until="domcontentloaded", timeout=10000)
+            page.wait_for_timeout(3000)
+            print("[DEBUG] Extensions page loaded", flush=True)
+            # Try to get extension info from page
+            try:
+                extensions = page.evaluate("""() => {
+                    const items = document.querySelectorAll('extensions-item');
+                    return Array.from(items).map(item => {
+                        const name = item.shadowRoot?.querySelector('#name')?.textContent;
+                        const id = item.getAttribute('id');
+                        const enabled = item.shadowRoot?.querySelector('#enable-toggle')?.checked;
+                        return {name, id, enabled};
+                    });
+                }""")
+                print(f"[DEBUG] Loaded extensions: {extensions}", flush=True)
+            except Exception as e:
+                print(f"[DEBUG] Could not parse extensions: {e}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Extensions page check failed: {e}", flush=True)
+        
+        # Go to a blank page first to let extension initialize
+        page.goto("about:blank", wait_until="domcontentloaded")
+        page.wait_for_timeout(5000)
+        
         atomic = get_smart_locator(page, "atomicmail", CONFIG)
 
         max_retries = int(CONFIG["retry"]["max_email_retries"])
