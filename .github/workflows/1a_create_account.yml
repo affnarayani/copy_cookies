@@ -1,17 +1,17 @@
-name: 1A. Fetch Cookies
+name: 1A. Create Account
 
 on:
   schedule:
-    - cron: '0 3 * * *'
+    - cron: '30 0 * * *'  # 6:00 AM IST = 00:30 UTC
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  fetch-cookies:
+  create-account:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: write
 
@@ -39,19 +39,19 @@ jobs:
       run: |
         curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
         echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-        
+
         sudo apt-get update && sudo apt-get install -y cloudflare-warp
-        
+
         sudo systemctl start warp-svc
         sleep 2
-        
+
         warp-cli --accept-tos registration new || warp-cli registration new
-        
+
         warp-cli --accept-tos mode warp || warp-cli mode warp
-        
+
         warp-cli --accept-tos connect || warp-cli connect
         sleep 5
-        
+
         curl https://cloudflare.com/cdn-cgi/trace
 
     - name: Install Dependencies
@@ -60,30 +60,29 @@ jobs:
         pip install -r requirements.txt
         playwright install chromium --with-deps
 
-    - name: Run Fetch Cookies Script
+    - name: Run Create Account Script
       env:
         DECRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         curl -I https://cloudflare.com/cdn-cgi/trace || echo "Proxy not responding"
         sudo apt-get update
         sudo apt-get install -y xvfb x11-xserver-utils
-        xvfb-run python fetch_cookies.py
+        xvfb-run python create_account.py
 
     - name: Upload Error Screenshot
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: fetch-cookies-error-screenshot
+        name: create-account-error-screenshot
         path: error/error_screenshot.png
         if-no-files-found: ignore
         retention-days: 3
 
-    - name: Commit and Push Cookie & Account Changes
+    - name: Commit and Push Account Changes
       if: always()
       run: |
         # Track every runtime path the scripts read/write so nothing is lost between runs
-        for path in chatgpt_cookies/ accounts/accounts.txt locators/ json/config.json; do
+        for path in accounts/accounts.txt; do
           if [ -e "$path" ]; then
             git add -f "$path"
           else
@@ -92,12 +91,12 @@ jobs:
         done
 
         if git diff --cached --quiet; then
-          echo "[INFO] No changes detected in chatgpt_cookies/, accounts/accounts.txt, locators/ or json/config.json. Skipping push."
+          echo "[INFO] No changes detected in accounts/accounts.txt. Skipping push."
           exit 0
         fi
 
         echo "[OK] Changes detected. Committing..."
-        git commit -m "Automated: Fresh ChatGPT cookies & accounts updated [skip ci]"
+        git commit -m "Automated: New account created [skip ci]"
 
         echo "[INFO] Rebasing onto latest ${GITHUB_REF_NAME} before pushing..."
         git pull origin ${GITHUB_REF_NAME} --rebase

@@ -1,9 +1,9 @@
-name: 1B. Copy Cookies
+name: 1C. Copy Cookies
 
 on: 
   workflow_dispatch: 
   workflow_run:
-    workflows: ["1A. Fetch Cookies"]
+    workflows: ["1B. Fetch Cookies"]
     types:
       - completed
 

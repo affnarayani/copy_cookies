@@ -432,34 +432,21 @@ def run():
 
     ext_dir = _prepare_extension_dir()
 
-    existing = load_existing_accounts()
-    if len(existing) >= MAX_ACCOUNTS:
-        print(
-            f"[INFO] accounts.txt already contains {len(existing)} account(s) (max {MAX_ACCOUNTS}). Not running.",
-            flush=True,
-        )
-        _cleanup_extension_dir()
-        return
-
-    to_create = MAX_ACCOUNTS - len(existing)
-    print(f"[INFO] {len(existing)} existing account(s). Creating {to_create} new account(s).", flush=True)
-
     stealth = Stealth()
     playwright_manager = stealth.use_sync(sync_playwright())
     pw = playwright_manager.__enter__()
 
     created = []
     try:
-        for i in range(to_create):
-            print(f"\n{'=' * 60}", flush=True)
-            print(f"[INFO] Creating account {i + 1}/{to_create}", flush=True)
-            print(f"{'=' * 60}", flush=True)
-            email = create_one_account(pw, ext_dir)
-            if email:
-                append_account(email)
-                created.append(email)
-            else:
-                print(f"[ERROR] Failed to create account {i + 1}/{to_create}", flush=True)
+        print(f"\n{'=' * 60}", flush=True)
+        print("[INFO] Creating 1 account", flush=True)
+        print(f"{'=' * 60}", flush=True)
+        email = create_one_account(pw, ext_dir)
+        if email:
+            append_account(email)
+            created.append(email)
+        else:
+            print("[ERROR] Failed to create account", flush=True)
     except Exception as error:
         print(f"[ERROR] Unexpected error: {error}", flush=True)
         sys.exit(1)
