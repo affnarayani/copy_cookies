@@ -67,7 +67,7 @@ jobs:
         curl -I https://cloudflare.com/cdn-cgi/trace || echo "Proxy not responding"
         sudo apt-get update
         sudo apt-get install -y xvfb x11-xserver-utils
-        xvfb-run python create_account.py
+        xvfb-run -a -s "-screen 0 1920x1080x24 -ac +extension GLX +extension RANDR +extension RENDER" python create_account.py
 
     - name: Upload Error Screenshot
       if: failure()

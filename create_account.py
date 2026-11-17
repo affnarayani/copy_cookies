@@ -217,7 +217,7 @@ def signup_atomicmail(page, atomic, firstname, surname, suffix, decrypt_key):
                 break
         except Exception:
             pass
-        custom_random_wait(2, 4)
+        custom_random_wait(3, 5)
     else:
         raise RuntimeError("Timed out waiting for captcha to be solved")
 
@@ -305,15 +305,29 @@ def create_one_account(pw, ext_dir):
                 f"--disable-extensions-except={ext_dir}",
                 "--start-maximized",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-features=site-per-process",
-                "--disable-features=IsolateOrigins",
+                "--disable-features=site-per-process,IsolateOrigins",
                 "--disable-web-security",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+                "--enable-extensions",
+                "--disable-extensions-http-throttling",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--password-store=basic",
+                "--use-mock-keychain",
             ],
         )
 
         page = context.pages[0] if context.pages else context.new_page()
+        page.wait_for_timeout(8000)
         atomic = get_smart_locator(page, "atomicmail", CONFIG)
 
         max_retries = int(CONFIG["retry"]["max_email_retries"])
