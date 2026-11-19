@@ -22,10 +22,13 @@ import time
 import zipfile
 
 from dotenv import load_dotenv
+
+import requests
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 from common.config import ROOT_DIR, get_config, resolve_path
+from common.file_utils import clear_png_screenshots
 from common.locator_manager import get_smart_locator
 from common.upload_utils import upload_to_onlyfiles
 
@@ -68,15 +71,18 @@ def _prepare_extension_dir():
         print(f"[INFO] Extracted extension to: {_EXTRACTED_EXTENSION_DIR}", flush=True)
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
-        for root, _dirs, files in os.walk(ext_root):
-            level = root.replace(ext_root, "").count(os.sep)
-            indent = " " * 2 * level
+        # List all files in extension root
+        for root, dirs, files in os.walk(ext_root):
+            level = root.replace(ext_root, '').count(os.sep)
+            indent = ' ' * 2 * level
             print(f"{indent}{os.path.basename(root)}/", flush=True)
-            subindent = " " * 2 * (level + 1)
+            subindent = ' ' * 2 * (level + 1)
             for file in files:
                 print(f"{subindent}{file}", flush=True)
+        # Read manifest for extension ID
         if os.path.exists(manifest):
-            with open(manifest, "r", encoding="utf-8") as f:
+            with open(manifest, "r") as f:
+                import json
                 manifest_data = json.load(f)
                 print(f"[INFO] Extension name: {manifest_data.get('name', 'unknown')}", flush=True)
                 print(f"[INFO] Extension version: {manifest_data.get('version', 'unknown')}", flush=True)
@@ -92,7 +98,6 @@ def _cleanup_extension_dir():
             shutil.rmtree(_EXTRACTED_EXTENSION_DIR, ignore_errors=True)
         except Exception:
             pass
-
 
 MAX_ACCOUNTS = 6
 DECRYPT_KEY = os.getenv("DECRYPT_KEY")
@@ -157,6 +162,7 @@ def load_existing_accounts():
 
 
 def append_account(email):
+    # Ensure previous content ends with newline before appending
     if os.path.exists(ACCOUNTS_FILE):
         with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
             content = f.read()
@@ -220,25 +226,13 @@ def signup_atomicmail(page, atomic, firstname, surname, suffix, decrypt_key):
     print("[STEP] Waiting for captcha solve (recovery email input), max 180s...", flush=True)
     recovery_input = atomic.locator("atomicmail_register_recovery_email_input")
     start = time.time()
-    poll_count = 0
     while (time.time() - start) < 180:
-        poll_count += 1
         try:
             if recovery_input.is_visible(timeout=5000):
                 print("[OK] Recovery email input visible - captcha solved.", flush=True)
                 break
         except Exception:
             pass
-        if poll_count % 5 == 0:
-            try:
-                has_hcaptcha = any("hcaptcha.com" in (f.url or "") for f in page.frames)
-                has_challenge = any("#frame=challenge" in (f.url or "") for f in page.frames)
-                print(
-                    f"[DEBUG] Captcha poll #{poll_count} ({int(time.time() - start)}s) | has_hcaptcha={has_hcaptcha} | has_challenge={has_challenge}",
-                    flush=True,
-                )
-            except Exception:
-                pass
         custom_random_wait(3, 5)
     else:
         raise RuntimeError("Timed out waiting for captcha to be solved")
@@ -317,61 +311,59 @@ def create_one_account(pw, ext_dir):
     page = None
     chatgpt_page = None
     try:
-        print("[DEBUG] Launching persistent browser context with extension...", flush=True)
-        launch_args = [
-            "--start-maximized",
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            f"--disable-extensions-except={ext_dir}",
-            f"--load-extension={ext_dir}",
-            "--disable-extensions-http-throttling",
-            "--disable-background-networking",
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-            "--disable-features=TranslateUI",
-            "--disable-ipc-flooding-protection",
-            "--force-color-profile=srgb",
-            "--metrics-recording-only",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--password-store=basic",
-            "--use-mock-keychain",
-        ]
-
+        print(f"[DEBUG] Launching browser with --load-extension", flush=True)
         context = pw.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=HEADLESS,
             no_viewport=True,
             user_agent=USER_AGENT,
-            args=launch_args,
+            args=[
+                f"--load-extension={ext_dir}",
+                f"--disable-extensions-except={ext_dir}",
+                "--start-maximized",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=site-per-process,IsolateOrigins",
+                "--disable-web-security",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--enable-extensions",
+                "--disable-extensions-http-throttling",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--password-store=basic",
+                "--use-mock-keychain",
+            ],
         )
 
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
-
-        print(f"[DEBUG] Open pages on launch: {[p.url for p in context.pages]}", flush=True)
-        print(f"[DEBUG] Background pages: {[p.url for p in context.background_pages]}", flush=True)
-        print(f"[DEBUG] Service workers: {[sw.url for sw in context.service_workers]}", flush=True)
-
+        
+        # Debug: Check if extension content script is active
         print("[DEBUG] Checking for NopeCHA content script...", flush=True)
-        page.goto(ATOMIC_SIGNUP_URL, wait_until="domcontentloaded")
+        page.goto("https://atomicmail.io/app/auth/sign-up", wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
         try:
+            # Check if NopeCHA injected any elements or set any globals
             nopecha_active = page.evaluate("""() => {
                 return {
                     hasNopechaGlobal: typeof window.nopecha !== 'undefined',
                     hasNopechaElement: document.querySelector('[data-nopecha]') !== null,
-                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(src => src.includes('nopecha')),
-                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(f => f.includes('nopecha')),
-                    allIframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src)
+                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(s => s.includes('nopecha')),
+                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(s => s.includes('nopecha'))
                 };
             }""")
             print(f"[DEBUG] NopeCHA detection: {nopecha_active}", flush=True)
         except Exception as e:
             print(f"[DEBUG] NopeCHA detection failed: {e}", flush=True)
-
+        
         atomic = get_smart_locator(page, "atomicmail", CONFIG)
 
         max_retries = int(CONFIG["retry"]["max_email_retries"])
