@@ -1,0 +1,85 @@
+name: 0A. CAPTCHA Helper
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  captcha-helper:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
+    - name: Configure Git
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Pull Latest Changes (Maintain Persistence)
+      run: |
+        git pull origin ${GITHUB_REF_NAME} --rebase
+
+    - name: Install and Start Cloudflare WARP (TUN Global Mode)
+      run: |
+        curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+
+        sudo apt-get update && sudo apt-get install -y cloudflare-warp
+
+        sudo systemctl start warp-svc
+        sleep 2
+
+        warp-cli --accept-tos registration new || warp-cli registration new
+
+        warp-cli --accept-tos mode warp || warp-cli mode warp
+
+        warp-cli --accept-tos connect || warp-cli connect
+        sleep 5
+
+        curl https://cloudflare.com/cdn-cgi/trace
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        playwright install chromium --with-deps
+
+    - name: Setup TigerVNC
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tigervnc-standalone-server tigervnc-common x11-xserver-utils x11-utils fluxbox
+        vncserver :99 -geometry 1920x1080 -depth 24 -SecurityTypes None -localhost no --I-KNOW-THIS-IS-INSECURE
+        export DISPLAY=:99
+        sleep 3
+        xdpyinfo -display :99
+
+    - name: Run CAPTCHA Helper Script
+      env:
+        DECRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
+        DISPLAY: :99
+      run: |
+        curl -I https://cloudflare.com/cdn-cgi/trace || echo "Proxy not responding"
+        python captcha_helper.py
+
+    - name: Upload Error Screenshot
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: captcha-helper-error-screenshot
+        path: error/error_screenshot.png
+        if-no-files-found: ignore
+        retention-days: 3
