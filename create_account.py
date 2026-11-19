@@ -223,13 +223,24 @@ def signup_atomicmail(page, atomic, firstname, surname, suffix, decrypt_key):
     print("[STEP] Waiting for captcha solve (recovery email input), max 180s...", flush=True)
     recovery_input = atomic.locator("atomicmail_register_recovery_email_input")
     start = time.time()
+    poll_count = 0
     while (time.time() - start) < 180:
+        poll_count += 1
         try:
             if recovery_input.is_visible(timeout=5000):
                 print("[OK] Recovery email input visible - captcha solved.", flush=True)
                 break
         except Exception:
             pass
+        if poll_count % 5 == 0:
+            try:
+                frame_urls = [f.url for f in page.frames if f.url]
+                print(
+                    f"[DEBUG] Captcha poll #{poll_count} ({int(time.time() - start)}s) | frames: {frame_urls}",
+                    flush=True,
+                )
+            except Exception:
+                pass
         custom_random_wait(3, 5)
     else:
         raise RuntimeError("Timed out waiting for captcha to be solved")
@@ -344,6 +355,10 @@ def create_one_account(pw, ext_dir):
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
 
+        print(f"[DEBUG] Open pages on launch: {[p.url for p in context.pages]}", flush=True)
+        print(f"[DEBUG] Background pages: {[p.url for p in context.background_pages]}", flush=True)
+        print(f"[DEBUG] Service workers: {[sw.url for sw in context.service_workers]}", flush=True)
+
         # Debug: Check if extension content script is active
         print("[DEBUG] Checking for NopeCHA content script...", flush=True)
         page.goto(ATOMIC_SIGNUP_URL, wait_until="domcontentloaded")
@@ -353,8 +368,9 @@ def create_one_account(pw, ext_dir):
                 return {
                     hasNopechaGlobal: typeof window.nopecha !== 'undefined',
                     hasNopechaElement: document.querySelector('[data-nopecha]') !== null,
-                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(s => s.includes('nopecha')),
-                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(f => s.includes('nopecha'))
+                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(src => src.includes('nopecha')),
+                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(f => f.includes('nopecha')),
+                    allIframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src)
                 };
             }""")
             print(f"[DEBUG] NopeCHA detection: {nopecha_active}", flush=True)
