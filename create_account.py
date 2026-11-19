@@ -22,13 +22,10 @@ import time
 import zipfile
 
 from dotenv import load_dotenv
-
-import requests
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 from common.config import ROOT_DIR, get_config, resolve_path
-from common.file_utils import clear_png_screenshots
 from common.locator_manager import get_smart_locator
 from common.upload_utils import upload_to_onlyfiles
 
@@ -72,17 +69,16 @@ def _prepare_extension_dir():
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
         # List all files in extension root
-        for root, dirs, files in os.walk(ext_root):
-            level = root.replace(ext_root, '').count(os.sep)
-            indent = ' ' * 2 * level
+        for root, _dirs, files in os.walk(ext_root):
+            level = root.replace(ext_root, "").count(os.sep)
+            indent = " " * 2 * level
             print(f"{indent}{os.path.basename(root)}/", flush=True)
-            subindent = ' ' * 2 * (level + 1)
+            subindent = " " * 2 * (level + 1)
             for file in files:
                 print(f"{subindent}{file}", flush=True)
         # Read manifest for extension ID
         if os.path.exists(manifest):
-            with open(manifest, "r") as f:
-                import json
+            with open(manifest, "r", encoding="utf-8") as f:
                 manifest_data = json.load(f)
                 print(f"[INFO] Extension name: {manifest_data.get('name', 'unknown')}", flush=True)
                 print(f"[INFO] Extension version: {manifest_data.get('version', 'unknown')}", flush=True)
@@ -98,6 +94,7 @@ def _cleanup_extension_dir():
             shutil.rmtree(_EXTRACTED_EXTENSION_DIR, ignore_errors=True)
         except Exception:
             pass
+
 
 MAX_ACCOUNTS = 6
 DECRYPT_KEY = os.getenv("DECRYPT_KEY")
@@ -310,9 +307,8 @@ def create_one_account(pw, ext_dir):
     context = None
     page = None
     chatgpt_page = None
-    browser = None
     try:
-        print(f"[DEBUG] Launching browser with extensions param", flush=True)
+        print("[DEBUG] Launching persistent browser context with extension...", flush=True)
         launch_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
@@ -320,7 +316,8 @@ def create_one_account(pw, ext_dir):
             "--disable-web-security",
             "--no-sandbox",
             "--disable-dev-shm-usage",
-            "--enable-extensions",
+            f"--disable-extensions-except={ext_dir}",
+            f"--load-extension={ext_dir}",
             "--disable-extensions-http-throttling",
             "--disable-background-networking",
             "--disable-background-timer-throttling",
@@ -336,37 +333,34 @@ def create_one_account(pw, ext_dir):
             "--use-mock-keychain",
         ]
 
-        browser = pw.chromium.launch(
+        context = pw.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
             headless=HEADLESS,
-            args=launch_args,
-        )
-        context = browser.new_context(
             no_viewport=True,
             user_agent=USER_AGENT,
-            extensions=[ext_dir],
+            args=launch_args,
         )
 
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
-        
+
         # Debug: Check if extension content script is active
         print("[DEBUG] Checking for NopeCHA content script...", flush=True)
-        page.goto("https://atomicmail.io/app/auth/sign-up", wait_until="domcontentloaded")
+        page.goto(ATOMIC_SIGNUP_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
         try:
-            # Check if NopeCHA injected any elements or set any globals
             nopecha_active = page.evaluate("""() => {
                 return {
                     hasNopechaGlobal: typeof window.nopecha !== 'undefined',
                     hasNopechaElement: document.querySelector('[data-nopecha]') !== null,
                     scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(s => s.includes('nopecha')),
-                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(s => s.includes('nopecha'))
+                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(f => s.includes('nopecha'))
                 };
             }""")
             print(f"[DEBUG] NopeCHA detection: {nopecha_active}", flush=True)
         except Exception as e:
             print(f"[DEBUG] NopeCHA detection failed: {e}", flush=True)
-        
+
         atomic = get_smart_locator(page, "atomicmail", CONFIG)
 
         max_retries = int(CONFIG["retry"]["max_email_retries"])
@@ -470,11 +464,6 @@ def create_one_account(pw, ext_dir):
             try:
                 context.close()
                 print(f"[INFO] Context closed for {email}.", flush=True)
-            except Exception:
-                pass
-        if browser:
-            try:
-                browser.close()
             except Exception:
                 pass
         try:
