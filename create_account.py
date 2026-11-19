@@ -461,7 +461,7 @@ def create_one_account(pw, ext_dir):
         chatgpt.locator("chatgpt_ask_chatgpt_input").wait_for(state="visible", timeout=15000)
         chatgpt.locator("chatgpt_ask_chatgpt_input").fill("hello")
         chatgpt_page.keyboard.press("Enter")
-        custom_random_wait(3, 5)
+        custom_random_wait(15, 30)
 
         print(f"[OK] Account fully created and verified: {email}", flush=True)
         return email
