@@ -338,7 +338,6 @@ def create_one_account(pw, ext_dir):
 
         browser = pw.chromium.launch(
             headless=HEADLESS,
-            user_data_dir=user_data_dir,
             args=launch_args,
         )
         context = browser.new_context(
