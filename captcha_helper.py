@@ -39,6 +39,9 @@ ERROR_SCREENSHOT = resolve_path(CONFIG["paths"]["error_screenshot"])
 EXTENSION_ZIP = resolve_path("extension/nopecha.zip")
 _EXTRACTED_EXTENSION_DIR = None
 
+# Persistent browser profile directory (in project root)
+BROWSER_PROFILE_DIR = resolve_path("browser_profile/captcha_helper")
+
 
 def _find_extension_root(extract_dir: str) -> str:
     """Walk the extracted dir to find the folder containing manifest.json."""
@@ -117,7 +120,12 @@ def capture_error_screenshot(page):
 
 
 def run_captcha_test(pw, ext_dir):
-    user_data_dir = tempfile.mkdtemp(prefix="captcha_helper_profile_")
+    # Use persistent profile directory in project root
+    # Run locally first to save NopeCHA extension state (free credits), then use same profile in CI
+    user_data_dir = BROWSER_PROFILE_DIR
+    os.makedirs(user_data_dir, exist_ok=True)
+    print(f"[INFO] Using persistent browser profile: {user_data_dir}", flush=True)
+    
     context = None
     page = None
     try:
@@ -229,14 +237,10 @@ def run_captcha_test(pw, ext_dir):
         if context:
             try:
                 context.close()
-                print("[INFO] Context closed.", flush=True)
+                print("[INFO] Context closed. Browser profile persisted for next run.", flush=True)
             except Exception:
                 pass
-        try:
-            if user_data_dir and os.path.exists(user_data_dir):
-                shutil.rmtree(user_data_dir, ignore_errors=True)
-        except Exception:
-            pass
+        # NOTE: Do NOT delete user_data_dir - we persist it for NopeCHA extension state (free credits)
 
 
 def run():
