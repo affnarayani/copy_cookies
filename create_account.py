@@ -68,7 +68,6 @@ def _prepare_extension_dir():
         print(f"[INFO] Extracted extension to: {_EXTRACTED_EXTENSION_DIR}", flush=True)
         print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
         print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
-        # List all files in extension root
         for root, _dirs, files in os.walk(ext_root):
             level = root.replace(ext_root, "").count(os.sep)
             indent = " " * 2 * level
@@ -76,7 +75,6 @@ def _prepare_extension_dir():
             subindent = " " * 2 * (level + 1)
             for file in files:
                 print(f"{subindent}{file}", flush=True)
-        # Read manifest for extension ID
         if os.path.exists(manifest):
             with open(manifest, "r", encoding="utf-8") as f:
                 manifest_data = json.load(f)
@@ -159,7 +157,6 @@ def load_existing_accounts():
 
 
 def append_account(email):
-    # Ensure previous content ends with newline before appending
     if os.path.exists(ACCOUNTS_FILE):
         with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
             content = f.read()
@@ -234,9 +231,10 @@ def signup_atomicmail(page, atomic, firstname, surname, suffix, decrypt_key):
             pass
         if poll_count % 5 == 0:
             try:
-                frame_urls = [f.url for f in page.frames if f.url]
+                has_hcaptcha = any("hcaptcha.com" in (f.url or "") for f in page.frames)
+                has_challenge = any("#frame=challenge" in (f.url or "") for f in page.frames)
                 print(
-                    f"[DEBUG] Captcha poll #{poll_count} ({int(time.time() - start)}s) | frames: {frame_urls}",
+                    f"[DEBUG] Captcha poll #{poll_count} ({int(time.time() - start)}s) | has_hcaptcha={has_hcaptcha} | has_challenge={has_challenge}",
                     flush=True,
                 )
             except Exception:
@@ -323,8 +321,6 @@ def create_one_account(pw, ext_dir):
         launch_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
-            "--disable-features=site-per-process,IsolateOrigins",
-            "--disable-web-security",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             f"--disable-extensions-except={ext_dir}",
@@ -359,7 +355,6 @@ def create_one_account(pw, ext_dir):
         print(f"[DEBUG] Background pages: {[p.url for p in context.background_pages]}", flush=True)
         print(f"[DEBUG] Service workers: {[sw.url for sw in context.service_workers]}", flush=True)
 
-        # Debug: Check if extension content script is active
         print("[DEBUG] Checking for NopeCHA content script...", flush=True)
         page.goto(ATOMIC_SIGNUP_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
