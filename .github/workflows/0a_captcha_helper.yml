@@ -51,6 +51,7 @@ jobs:
     - name: Run CAPTCHA Helper Script
       env:
         DECRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
+        NONECAP_API_KEY: ${{ secrets.NONECAP_API_KEY }}
         DISPLAY: :99
       run: |
         python captcha_helper.py

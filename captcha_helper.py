@@ -1,94 +1,39 @@
-"""Helper script to test CAPTCHA solving extension on hCaptcha demo page.
+"""Helper script to test CAPTCHA solving using Nonecap API on hCaptcha demo page.
 
 Conventions followed from this project:
-- Locators are declared in locators/<platform>_locators.txt and accessed through
-  common.locator_manager.get_smart_locator; scripts reference locator keys only.
 - Waits use custom_random_wait() and absolute_wait() driven by json/config.json.
-- .env provides DECRYPT_KEY (for passwords).
-- Every account gets a fresh browser session/context.
+- .env provides NONECAP_API_KEY (for Nonecap API).
 - captcha_helper.py always runs headless=False.
 """
 
-import json
 import os
 import random
 import shutil
 import sys
 import tempfile
 import time
-import zipfile
 
+import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 from common.config import ROOT_DIR, get_config, resolve_path
-from common.locator_manager import get_smart_locator
 from common.upload_utils import upload_to_onlyfiles
 
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
 
 CONFIG = get_config()
-HEADLESS = False
+HEADLESS = True
 USER_AGENT = CONFIG["browser"]["user_agent"]
 TYPING_DELAY = int(CONFIG["browser"]["typing_delay_ms"])
+NONECAP_API_KEY = os.getenv("NONECAP_API_KEY")
 
 HCAPTCHA_DEMO_URL = "https://accounts.hcaptcha.com/demo"
+HCAPTCHA_SITEKEY = "a5f74b19-9e45-40e0-b45d-47ff91b7a6c2"
 
 ERROR_SCREENSHOT = resolve_path(CONFIG["paths"]["error_screenshot"])
-EXTENSION_ZIP = resolve_path("extension/nopecha.zip")
-_EXTRACTED_EXTENSION_DIR = None
-
-# Persistent browser profile directory (in project root)
-BROWSER_PROFILE_DIR = resolve_path("browser_profile/captcha_helper")
-
-
-def _find_extension_root(extract_dir: str) -> str:
-    """Walk the extracted dir to find the folder containing manifest.json."""
-    for root, _dirs, files in os.walk(extract_dir):
-        if "manifest.json" in files:
-            return root
-    return extract_dir
-
-
-def _prepare_extension_dir():
-    """Extract the extension zip to a temp directory for --load-extension."""
-    global _EXTRACTED_EXTENSION_DIR
-    if not os.path.exists(EXTENSION_ZIP):
-        raise FileNotFoundError(f"Extension zip not found: {EXTENSION_ZIP}")
-    if _EXTRACTED_EXTENSION_DIR is None:
-        _EXTRACTED_EXTENSION_DIR = tempfile.mkdtemp(prefix="captcha_helper_ext_")
-        with zipfile.ZipFile(EXTENSION_ZIP, "r") as zf:
-            zf.extractall(_EXTRACTED_EXTENSION_DIR)
-        ext_root = _find_extension_root(_EXTRACTED_EXTENSION_DIR)
-        manifest = os.path.join(ext_root, "manifest.json")
-        print(f"[INFO] Extracted extension to: {_EXTRACTED_EXTENSION_DIR}", flush=True)
-        print(f"[INFO] Extension root (manifest): {ext_root}", flush=True)
-        print(f"[INFO] Manifest exists: {os.path.exists(manifest)}", flush=True)
-        for root, _dirs, files in os.walk(ext_root):
-            level = root.replace(ext_root, "").count(os.sep)
-            indent = " " * 2 * level
-            print(f"{indent}{os.path.basename(root)}/", flush=True)
-            subindent = " " * 2 * (level + 1)
-            for file in files:
-                print(f"{subindent}{file}", flush=True)
-        if os.path.exists(manifest):
-            with open(manifest, "r", encoding="utf-8") as f:
-                manifest_data = json.load(f)
-                print(f"[INFO] Extension name: {manifest_data.get('name', 'unknown')}", flush=True)
-                print(f"[INFO] Extension version: {manifest_data.get('version', 'unknown')}", flush=True)
-                print(f"[INFO] Extension manifest keys: {list(manifest_data.keys())}", flush=True)
-        _EXTRACTED_EXTENSION_DIR = ext_root
-    return _EXTRACTED_EXTENSION_DIR
-
-
-def _cleanup_extension_dir():
-    global _EXTRACTED_EXTENSION_DIR
-    if _EXTRACTED_EXTENSION_DIR and os.path.exists(_EXTRACTED_EXTENSION_DIR):
-        try:
-            shutil.rmtree(_EXTRACTED_EXTENSION_DIR, ignore_errors=True)
-        except Exception:
-            pass
+NONECAP_API_URL = "https://api.nonecap.com/v1/solves"
 
 
 def custom_random_wait(min_sec=None, max_sec=None):
@@ -119,24 +64,193 @@ def capture_error_screenshot(page):
         return None
 
 
-def run_captcha_test(pw, ext_dir):
-    # Use persistent profile directory in project root
-    # Run locally first to save NopeCHA extension state (free credits), then use same profile in CI
-    user_data_dir = BROWSER_PROFILE_DIR
-    os.makedirs(user_data_dir, exist_ok=True)
-    print(f"[INFO] Using persistent browser profile: {user_data_dir}", flush=True)
+def solve_hcaptcha_with_nonecap(page, sitekey, url):
+    """Use Nonecap API to solve hCaptcha and inject token."""
+    if not NONECAP_API_KEY:
+        print("[ERROR] NONECAP_API_KEY not set in environment", flush=True)
+        return False
+
+    print(f"[STEP] Submitting hCaptcha to Nonecap API...", flush=True)
     
+    headers = {
+        "Authorization": f"Bearer {NONECAP_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "type": "hcaptcha",
+        "sitekey": sitekey,
+        "url": url
+    }
+    
+    try:
+        # Submit solve request with wait=30 to get result directly
+        response = requests.post(
+            f"{NONECAP_API_URL}?wait=30",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        
+        if response.status_code != 200:
+            print(f"[ERROR] Nonecap API error: {response.status_code} - {response.text}", flush=True)
+            return False
+        
+        result = response.json()
+        
+        # Extract token from response
+        token = result.get("data", {}).get("token") or result.get("token")
+        if not token:
+            print(f"[ERROR] No token in Nonecap response", flush=True)
+            return False
+        
+        print(f"[OK] Got hCaptcha token from Nonecap (length: {len(token)})", flush=True)
+        
+        # Inject token into page
+        print("[STEP] Injecting hCaptcha token into page...", flush=True)
+        
+        # Method 1: Set the hidden textarea value and trigger callback
+        page.evaluate(f"""() => {{
+            // hCaptcha stores response in a textarea
+            const textarea = document.querySelector('[name="h-captcha-response"]') || 
+                           document.querySelector('[name="g-recaptcha-response"]') ||
+                           document.querySelector('textarea#h-captcha-response');
+            if (textarea) {{
+                textarea.value = '{token}';
+                textarea.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                console.log('Set h-captcha-response textarea');
+            }}
+            
+            // Also try calling hcaptcha.setResponse if available
+            if (window.hcaptcha) {{
+                try {{
+                    window.hcaptcha.setResponse('{token}');
+                    console.log('Called hcaptcha.setResponse');
+                }} catch (e) {{ console.log('hcaptcha.setResponse failed:', e); }}
+            }}
+            
+            // Try to execute callback if exists
+            if (window.hcaptcha && window.hcaptcha.callback) {{
+                try {{
+                    window.hcaptcha.callback('{token}');
+                    console.log('Called hcaptcha.callback');
+                }} catch (e) {{}}
+            }}
+            
+            // Try to execute enterprise callback
+            if (window.hcaptcha && window.hcaptcha.enterprise && window.hcaptcha.enterprise.callback) {{
+                try {{
+                    window.hcaptcha.enterprise.callback('{token}');
+                    console.log('Called hcaptcha.enterprise.callback');
+                }} catch (e) {{}}
+            }}
+            
+            // Trigger any callbacks on forms
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => form.dispatchEvent(new Event('submit', {{ bubbles: true }})));
+            
+            // Try to find and call any global callback functions
+            const possibleCallbacks = ['onCaptchaSolved', 'onCaptchaSuccess', 'onSuccess', 'captchaCallback', 'hCaptchaCallback', 'onChallengeSuccess'];
+            possibleCallbacks.forEach(cbName => {{
+                if (typeof window[cbName] === 'function') {{
+                    try {{ window[cbName]('{token}'); console.log('Called global callback:', cbName); }} catch (e) {{}}
+                }}
+            }});
+        }}""")
+        
+        custom_random_wait(2, 3)
+        
+        # Verify token was set (masked)
+        token_check = page.evaluate("""() => {
+            const textarea = document.querySelector('[name="h-captcha-response"]');
+            return textarea ? textarea.value : 'not found';
+        }""")
+        if token_check and token_check != 'not found':
+            print(f"[DEBUG] Token in textarea: {token_check[:20]}... (masked)", flush=True)
+        else:
+            print("[DEBUG] Token in textarea: not found", flush=True)
+        
+        # Click verify/submit buttons on main page
+        print("[STEP] Looking for verify/submit buttons on main page...", flush=True)
+        try:
+            for selector in [
+                'button:has-text("Verify")',
+                'button:has-text("Submit")',
+                'button:has-text("Continue")',
+                'button[type="submit"]',
+                'button[id*="verify"]',
+                'button[class*="verify"]',
+                '.verify-button',
+                '#verify-button',
+                'input[type="submit"]'
+            ]:
+                try:
+                    btns = page.locator(selector).all()
+                    for btn in btns:
+                        if btn.is_visible(timeout=1000):
+                            btn.click()
+                            print(f"[OK] Clicked button on main page: {selector}", flush=True)
+                            custom_random_wait(1, 2)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        
+        # Try triggering hCaptcha verification directly
+        print("[STEP] Triggering hCaptcha verification...", flush=True)
+        try:
+            page.evaluate(f"""() => {{
+                // Try hcaptcha.execute if available
+                if (window.hcaptcha) {{
+                    try {{
+                        window.hcaptcha.execute();
+                        console.log('Called hcaptcha.execute()');
+                    }} catch (e) {{ console.log('hcaptcha.execute failed:', e); }}
+                }}
+                
+                // Try to find and call any verification function
+                const verifyFuncs = ['verifyCaptcha', 'verifyHcaptcha', 'onVerify', 'doVerify', 'submitCaptcha'];
+                verifyFuncs.forEach(fn => {{
+                    if (typeof window[fn] === 'function') {{
+                        try {{ window[fn](); console.log('Called:', fn); }} catch (e) {{}}
+                    }}
+                }});
+                
+                // Try clicking any button with hcaptcha-related text
+                document.querySelectorAll('button').forEach(btn => {{
+                    const text = btn.innerText || btn.textContent || '';
+                    if (/verify|submit|continue|confirm/i.test(text)) {{
+                        try {{ btn.click(); console.log('Clicked hcaptcha-related button:', text); }} catch (e) {{}}
+                    }}
+                }});
+            }}""")
+            custom_random_wait(2, 3)
+        except Exception:
+            pass
+        
+        return True
+        
+    except requests.exceptions.Timeout:
+        print("[ERROR] Nonecap API timeout", flush=True)
+        return False
+    except Exception as e:
+        print(f"[ERROR] Nonecap API request failed: {e}", flush=True)
+        return False
+
+
+def run_captcha_test(pw):
+    user_data_dir = tempfile.mkdtemp(prefix="captcha_helper_")
+
     context = None
     page = None
     try:
-        print("[DEBUG] Launching persistent browser context with extension...", flush=True)
+        print("[DEBUG] Launching browser context...", flush=True)
         launch_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
-            f"--disable-extensions-except={ext_dir}",
-            f"--load-extension={ext_dir}",
             "--disable-extensions-http-throttling",
             "--disable-background-networking",
             "--disable-background-timer-throttling",
@@ -160,74 +274,74 @@ def run_captcha_test(pw, ext_dir):
             args=launch_args,
         )
 
-        print(f"[DEBUG] Extension loaded successfully. Context ID: {id(context)}", flush=True)
-        print(f"[DEBUG] Extension directory: {ext_dir}", flush=True)
-
         page = context.pages[0] if context.pages else context.new_page()
-        page.wait_for_timeout(8000)
-
-        print(f"[DEBUG] Open pages on launch: {[p.url for p in context.pages]}", flush=True)
-        print(f"[DEBUG] Background pages: {[p.url for p in context.background_pages]}", flush=True)
-        print(f"[DEBUG] Service workers count: {len(context.service_workers)}", flush=True)
-        for sw in context.service_workers:
-            print(f"[DEBUG]   Service worker: {sw.url}", flush=True)
-
-        print("[DEBUG] Checking for NopeCHA content script on demo page...", flush=True)
-        page.goto(HCAPTCHA_DEMO_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
-        try:
-            nopecha_active = page.evaluate("""() => {
-                return {
-                    hasNopechaGlobal: typeof window.nopecha !== 'undefined',
-                    hasNopechaElement: document.querySelector('[data-nopecha]') !== null,
-                    scripts: Array.from(document.querySelectorAll('script')).map(s => s.src).filter(src => src.includes('nopecha')),
-                    iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).filter(f => f.includes('nopecha')),
-                    allIframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src)
-                };
-            }""")
-            print(f"[DEBUG] NopeCHA detection: {nopecha_active}", flush=True)
-        except Exception as e:
-            print(f"[DEBUG] NopeCHA detection failed: {e}", flush=True)
 
-        print(f"[STEP] Navigating to hCaptcha demo page: {HCAPTCHA_DEMO_URL}", flush=True)
+        print(f"[STEP] Navigating to hCaptcha demo: {HCAPTCHA_DEMO_URL}", flush=True)
         page.goto(HCAPTCHA_DEMO_URL, wait_until="domcontentloaded")
         absolute_wait()
 
-        print("[STEP] Waiting for CAPTCHA to be solved by extension (max 30s)...", flush=True)
-        start_time = time.time()
-        max_wait = 30
-        poll_count = 0
-        success_found = False
+        # Wait for checkbox iframe and click it
+        print("[STEP] Waiting for hCaptcha checkbox...", flush=True)
+        checkbox_frame = page.frame_locator('iframe[src*="hcaptcha.com"][src*="frame=checkbox"]')
+        checkbox_frame.locator('#checkbox, .checkbox, [role="checkbox"]').first.click()
+        print("[OK] Clicked checkbox", flush=True)
+        custom_random_wait(2, 3)
 
-        while (time.time() - start_time) < max_wait:
-            poll_count += 1
+        # Wait for challenge to appear (or success) - up to 60 seconds
+        print("[STEP] Waiting for challenge or success...", flush=True)
+        start = time.time()
+        challenge_appeared = False
+        while time.time() - start < 60:
             try:
-                success_locator = page.get_by_text("Challenge Success!")
-                if success_locator.is_visible(timeout=2000):
-                    print("[OK] 'Challenge Success!' text found - CAPTCHA solved!", flush=True)
-                    success_found = True
+                # Check for success first
+                if page.get_by_text("Challenge Success!").is_visible(timeout=1000):
+                    print("[OK] Challenge Success! found (no challenge needed)", flush=True)
+                    return True
+                
+                # Check for challenge iframe
+                challenge_frame = page.frame_locator('iframe[src*="hcaptcha.com"][src*="frame=challenge"]')
+                if challenge_frame.locator('body').is_visible(timeout=1000):
+                    challenge_appeared = True
+                    print("[OK] Challenge iframe appeared", flush=True)
                     break
-            except Exception as e:
+            except Exception:
                 pass
+            custom_random_wait(1, 2)
+        
+        if not challenge_appeared:
+            # Final check for success
+            try:
+                if page.get_by_text("Challenge Success!").is_visible(timeout=3000):
+                    print("[OK] Challenge Success! found", flush=True)
+                    return True
+            except Exception:
+                pass
+            print("[INFO] No challenge appeared", flush=True)
+            return False
 
-            if poll_count % 3 == 0:
-                elapsed = int(time.time() - start_time)
-                print(f"[DEBUG] Poll #{poll_count} ({elapsed}s elapsed) - waiting for CAPTCHA solution...", flush=True)
-                # Check if CAPTCHA iframe is present
-                try:
-                    iframes = page.evaluate("""() => Array.from(document.querySelectorAll('iframe')).map(f => f.src)""")
-                    hcaptcha_frames = [f for f in iframes if 'hcaptcha' in f]
-                    print(f"[DEBUG]   hCaptcha iframes: {len(hcaptcha_frames)}", flush=True)
-                except Exception:
-                    pass
-
-            custom_random_wait(3, 5)
-
-        if not success_found:
-            raise RuntimeError(f"Timed out after {max_wait}s waiting for CAPTCHA to be solved")
-
-        print("[SUCCESS] CAPTCHA challenge completed successfully!", flush=True)
-        return True
+        # Solve with Nonecap API
+        print("[STEP] Solving hCaptcha with Nonecap API...", flush=True)
+        success = solve_hcaptcha_with_nonecap(page, HCAPTCHA_SITEKEY, HCAPTCHA_DEMO_URL)
+        
+        if not success:
+            print("[ERROR] Failed to solve hCaptcha with Nonecap", flush=True)
+            return False
+        
+        # Wait and check for success - poll for up to 60 seconds
+        print("[STEP] Waiting for Challenge Success! after token injection...", flush=True)
+        start = time.time()
+        while time.time() - start < 60:
+            try:
+                if page.get_by_text("Challenge Success!").is_visible(timeout=2000):
+                    print("[OK] Challenge Success! found after solving", flush=True)
+                    return True
+            except Exception:
+                pass
+            custom_random_wait(1, 2)
+        
+        print("[ERROR] Challenge Success! not found after solving", flush=True)
+        return False
 
     except Exception as error:
         print(f"[ERROR] CAPTCHA test failed: {error}", flush=True)
@@ -237,16 +351,23 @@ def run_captcha_test(pw, ext_dir):
         if context:
             try:
                 context.close()
-                print("[INFO] Context closed. Browser profile persisted for next run.", flush=True)
+                print("[INFO] Context closed.", flush=True)
             except Exception:
                 pass
-        # NOTE: Do NOT delete user_data_dir - we persist it for NopeCHA extension state (free credits)
+        try:
+            if user_data_dir and os.path.exists(user_data_dir):
+                shutil.rmtree(user_data_dir, ignore_errors=True)
+                print("[INFO] Temporary browser profile cleaned up.", flush=True)
+        except Exception:
+            pass
 
 
 def run():
-    print("[START] CAPTCHA Helper script started", flush=True)
+    print("[START] CAPTCHA Helper (Nonecap API) started", flush=True)
 
-    ext_dir = _prepare_extension_dir()
+    if not NONECAP_API_KEY:
+        print("[ERROR] NONECAP_API_KEY not set in .env or environment", flush=True)
+        sys.exit(1)
 
     stealth = Stealth()
     playwright_manager = stealth.use_sync(sync_playwright())
@@ -255,20 +376,36 @@ def run():
     success = False
     try:
         print(f"\n{'=' * 60}", flush=True)
-        print("[INFO] Running CAPTCHA test on hCaptcha demo page", flush=True)
+        print("[INFO] Running CAPTCHA test on hCaptcha demo page (Nonecap API)", flush=True)
         print(f"{'=' * 60}", flush=True)
-        success = run_captcha_test(pw, ext_dir)
+        success = run_captcha_test(pw)
         if success:
             print("[OK] CAPTCHA test passed!", flush=True)
-            sys.exit(0)
         else:
             print("[ERROR] CAPTCHA test failed", flush=True)
-            sys.exit(1)
+        
+        # Print Nonecap account balance
+        try:
+            print("[STEP] Fetching Nonecap account balance...", flush=True)
+            me_response = requests.get(
+                "https://api.nonecap.com/v1/me",
+                headers={"Authorization": f"Bearer {NONECAP_API_KEY}"},
+                timeout=10
+            )
+            if me_response.status_code == 200:
+                me = me_response.json()
+                credits = me.get("credits_balance") or me.get("balance") or me.get("credits") or "unknown"
+                print(f"[INFO] Nonecap Balance: {credits} credits", flush=True)
+            else:
+                print(f"[WARNING] Failed to fetch balance: {me_response.status_code}", flush=True)
+        except Exception as e:
+            print(f"[WARNING] Could not fetch Nonecap balance: {e}", flush=True)
+        
+        sys.exit(0 if success else 1)
     except Exception as error:
         print(f"[ERROR] Unexpected error: {error}", flush=True)
         sys.exit(1)
     finally:
-        _cleanup_extension_dir()
         try:
             playwright_manager.__exit__(None, None, None)
         except Exception:
