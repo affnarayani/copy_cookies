@@ -53,7 +53,6 @@ jobs:
         DECRYPT_KEY: ${{ secrets.DECRYPT_KEY }}
         DISPLAY: :99
       run: |
-        curl -I https://cloudflare.com/cdn-cgi/trace || echo "Proxy not responding"
         python captcha_helper.py
 
     - name: Upload Error Screenshot
