@@ -30,6 +30,7 @@ chatgpt_verification_code_input = page.locator("xpath=/html[1]/body[1]/div[1]/di
 chatgpt_verification_code_input = page.get_by_label("Code") ::
 chatgpt_continue_button_after_code = page.get_by_role("button", name="Continue") ::
 chatgpt_account_block_error = page.get_by_role("button", name="Try again") ::
+chatgpt_account_block_error = page.get_by_role("button", name="Continue") ::
 chatgpt_account_block_error = page.locator("[data-testid='error-banner']") ::
 chatgpt_existing_workspace_row = page.get_by_test_id("existing-workspace-row") ::
 chatgpt_existing_workspace_open_button = page.locator("chatgpt_existing_workspace_row").get_by_role("button", name="Open") ::
