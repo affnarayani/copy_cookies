@@ -1,4 +1,4 @@
-name: 2A. Fetch Cookies
+name: 1A. Fetch Cookies
 
 on:
   schedule:
