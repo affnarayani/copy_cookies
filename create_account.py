@@ -310,37 +310,41 @@ def create_one_account(pw, ext_dir):
     context = None
     page = None
     chatgpt_page = None
+    browser = None
     try:
-        print(f"[DEBUG] Launching browser with --load-extension", flush=True)
-        context = pw.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
+        print(f"[DEBUG] Launching browser with extensions param", flush=True)
+        launch_args = [
+            "--start-maximized",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=site-per-process,IsolateOrigins",
+            "--disable-web-security",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--enable-extensions",
+            "--disable-extensions-http-throttling",
+            "--disable-background-networking",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-features=TranslateUI",
+            "--disable-ipc-flooding-protection",
+            "--force-color-profile=srgb",
+            "--metrics-recording-only",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--password-store=basic",
+            "--use-mock-keychain",
+        ]
+
+        browser = pw.chromium.launch(
             headless=HEADLESS,
+            user_data_dir=user_data_dir,
+            args=launch_args,
+        )
+        context = browser.new_context(
             no_viewport=True,
             user_agent=USER_AGENT,
-            args=[
-                f"--load-extension={ext_dir}",
-                f"--disable-extensions-except={ext_dir}",
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=site-per-process,IsolateOrigins",
-                "--disable-web-security",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--enable-extensions",
-                "--disable-extensions-http-throttling",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-features=TranslateUI",
-                "--disable-ipc-flooding-protection",
-                "--force-color-profile=srgb",
-                "--metrics-recording-only",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--password-store=basic",
-                "--use-mock-keychain",
-            ],
+            extensions=[ext_dir],
         )
 
         page = context.pages[0] if context.pages else context.new_page()
@@ -467,6 +471,11 @@ def create_one_account(pw, ext_dir):
             try:
                 context.close()
                 print(f"[INFO] Context closed for {email}.", flush=True)
+            except Exception:
+                pass
+        if browser:
+            try:
+                browser.close()
             except Exception:
                 pass
         try:
