@@ -152,14 +152,19 @@ def run_captcha_test(pw, ext_dir):
             args=launch_args,
         )
 
+        print(f"[DEBUG] Extension loaded successfully. Context ID: {id(context)}", flush=True)
+        print(f"[DEBUG] Extension directory: {ext_dir}", flush=True)
+
         page = context.pages[0] if context.pages else context.new_page()
         page.wait_for_timeout(8000)
 
         print(f"[DEBUG] Open pages on launch: {[p.url for p in context.pages]}", flush=True)
         print(f"[DEBUG] Background pages: {[p.url for p in context.background_pages]}", flush=True)
-        print(f"[DEBUG] Service workers: {[sw.url for sw in context.service_workers]}", flush=True)
+        print(f"[DEBUG] Service workers count: {len(context.service_workers)}", flush=True)
+        for sw in context.service_workers:
+            print(f"[DEBUG]   Service worker: {sw.url}", flush=True)
 
-        print("[DEBUG] Checking for NopeCHA content script...", flush=True)
+        print("[DEBUG] Checking for NopeCHA content script on demo page...", flush=True)
         page.goto(HCAPTCHA_DEMO_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(5000)
         try:
@@ -180,9 +185,9 @@ def run_captcha_test(pw, ext_dir):
         page.goto(HCAPTCHA_DEMO_URL, wait_until="domcontentloaded")
         absolute_wait()
 
-        print("[STEP] Waiting for CAPTCHA to be solved by extension (max 120s)...", flush=True)
+        print("[STEP] Waiting for CAPTCHA to be solved by extension (max 30s)...", flush=True)
         start_time = time.time()
-        max_wait = 120
+        max_wait = 30
         poll_count = 0
         success_found = False
 
@@ -194,12 +199,19 @@ def run_captcha_test(pw, ext_dir):
                     print("[OK] 'Challenge Success!' text found - CAPTCHA solved!", flush=True)
                     success_found = True
                     break
-            except Exception:
+            except Exception as e:
                 pass
 
-            if poll_count % 5 == 0:
+            if poll_count % 3 == 0:
                 elapsed = int(time.time() - start_time)
                 print(f"[DEBUG] Poll #{poll_count} ({elapsed}s elapsed) - waiting for CAPTCHA solution...", flush=True)
+                # Check if CAPTCHA iframe is present
+                try:
+                    iframes = page.evaluate("""() => Array.from(document.querySelectorAll('iframe')).map(f => f.src)""")
+                    hcaptcha_frames = [f for f in iframes if 'hcaptcha' in f]
+                    print(f"[DEBUG]   hCaptcha iframes: {len(hcaptcha_frames)}", flush=True)
+                except Exception:
+                    pass
 
             custom_random_wait(3, 5)
 
